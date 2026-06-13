@@ -709,3 +709,351 @@ func BenchmarkSerializeDeserialize(b *testing.B) {
 		DeserializeEncryptedData(serialized)
 	}
 }
+
+// TestEncryptDecryptStream 测试基本的流式加密/解密功能
+func TestEncryptDecryptStream(t *testing.T) {
+	// 生成发送方和接收方密钥对
+	senderKeyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("生成发送方密钥对失败: %v", err)
+	}
+
+	recipientKeyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("生成接收方密钥对失败: %v", err)
+	}
+
+	plaintext := []byte("Hello, World! This is a test message for stream encryption.")
+
+	// 创建缓冲区用于存储加密数据
+	encryptedBuffer := &bytes.Buffer{}
+
+	// 流式加密
+	bufferSize := 4096 // 4KB 缓冲区
+	totalBytes, err := EncryptStream(bytes.NewReader(plaintext), encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, bufferSize)
+	if err != nil {
+		t.Fatalf("流式加密失败: %v", err)
+	}
+
+	// 验证加密的总字节数
+	if totalBytes != int64(len(plaintext)) {
+		t.Errorf("加密字节数不匹配: 期望 %d, 实际 %d", len(plaintext), totalBytes)
+	}
+
+	// 验证加密数据包含头部
+	encryptedData := encryptedBuffer.Bytes()
+	if len(encryptedData) != HeaderSize+len(plaintext) {
+		t.Errorf("加密数据长度不匹配: 期望 %d, 实际 %d", HeaderSize+len(plaintext), len(encryptedData))
+	}
+
+	// 流式解密
+	decryptedBuffer := &bytes.Buffer{}
+	senderPubKey, totalBytes, err := DecryptStream(bytes.NewReader(encryptedData), decryptedBuffer, recipientKeyPair, bufferSize)
+	if err != nil {
+		t.Fatalf("流式解密失败: %v", err)
+	}
+
+	// 验证解密的总字节数
+	if totalBytes != int64(len(plaintext)) {
+		t.Errorf("解密字节数不匹配: 期望 %d, 实际 %d", len(plaintext), totalBytes)
+	}
+
+	// 验证发送方公钥
+	if !bytes.Equal(senderPubKey[:], senderKeyPair.PublicKey[:]) {
+		t.Errorf("发送方公钥不匹配")
+	}
+
+	// 验证解密后的数据
+	decryptedPlaintext := decryptedBuffer.Bytes()
+	if !bytes.Equal(decryptedPlaintext, plaintext) {
+		t.Errorf("解密后的数据不匹配原始数据")
+		t.Errorf("原始:   %s", plaintext)
+		t.Errorf("解密:   %s", decryptedPlaintext)
+	}
+}
+
+// TestEncryptDecryptStreamDifferentSizes 测试不同数据大小的流式加密/解密
+func TestEncryptDecryptStreamDifferentSizes(t *testing.T) {
+	sizes := []int{
+		0,       // 空数据
+		1,       // 单字节
+		16,      // 小数据
+		1024,    // 1KB
+		4096,    // 4KB
+		16384,   // 16KB
+		65536,   // 64KB
+		131072,  // 128KB
+	}
+
+	bufferSizes := []int{
+		1024,  // 1KB 缓冲区
+		4096,  // 4KB 缓冲区
+		16384, // 16KB 缓冲区
+	}
+
+	for _, size := range sizes {
+		for _, bufferSize := range bufferSizes {
+			t.Run(fmt.Sprintf("size_%d_buffer_%d", size, bufferSize), func(t *testing.T) {
+				senderKeyPair, err := GenerateKeyPair()
+				if err != nil {
+					t.Fatalf("生成发送方密钥对失败: %v", err)
+				}
+
+				recipientKeyPair, err := GenerateKeyPair()
+				if err != nil {
+					t.Fatalf("生成接收方密钥对失败: %v", err)
+				}
+
+				plaintext := make([]byte, size)
+				if size > 0 {
+					io.ReadFull(rand.Reader, plaintext)
+				}
+
+				// 流式加密
+				encryptedBuffer := &bytes.Buffer{}
+				totalBytes, err := EncryptStream(bytes.NewReader(plaintext), encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, bufferSize)
+				if err != nil {
+					t.Fatalf("流式加密失败: %v", err)
+				}
+
+				if totalBytes != int64(len(plaintext)) {
+					t.Errorf("加密字节数不匹配: 期望 %d, 实际 %d", len(plaintext), totalBytes)
+				}
+
+				// 流式解密
+				decryptedBuffer := &bytes.Buffer{}
+				_, totalBytes, err = DecryptStream(bytes.NewReader(encryptedBuffer.Bytes()), decryptedBuffer, recipientKeyPair, bufferSize)
+				if err != nil {
+					t.Fatalf("流式解密失败: %v", err)
+				}
+
+				if totalBytes != int64(len(plaintext)) {
+					t.Errorf("解密字节数不匹配: 期望 %d, 实际 %d", len(plaintext), totalBytes)
+				}
+
+				decryptedPlaintext := decryptedBuffer.Bytes()
+				if !bytes.Equal(decryptedPlaintext, plaintext) {
+					t.Errorf("解密后的数据不匹配原始数据 (size=%d, bufferSize=%d)", size, bufferSize)
+				}
+			})
+		}
+	}
+}
+
+// TestEncryptStreamCompatibility 测试流式加密与原有加密函数的兼容性
+func TestEncryptStreamCompatibility(t *testing.T) {
+	senderKeyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("生成发送方密钥对失败: %v", err)
+	}
+
+	recipientKeyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("生成接收方密钥对失败: %v", err)
+	}
+
+	plaintext := []byte("Compatibility test between stream and non-stream encryption")
+
+	// 使用原有 EncryptWithKeyPair 函数加密
+	encryptedData, err := EncryptWithKeyPair(plaintext, senderKeyPair, recipientKeyPair.PublicKey)
+	if err != nil {
+		t.Fatalf("原有加密失败: %v", err)
+	}
+
+	// 序列化原有加密结果
+	serialized := encryptedData.Serialize()
+
+	// 使用流式解密解密原有加密结果
+	decryptedBuffer := &bytes.Buffer{}
+	bufferSize := 4096
+	_, totalBytes, err := DecryptStream(bytes.NewReader(serialized), decryptedBuffer, recipientKeyPair, bufferSize)
+	if err != nil {
+		t.Fatalf("流式解密原有加密数据失败: %v", err)
+	}
+
+	if totalBytes != int64(len(plaintext)) {
+		t.Errorf("解密字节数不匹配: 期望 %d, 实际 %d", len(plaintext), totalBytes)
+	}
+
+	decryptedPlaintext := decryptedBuffer.Bytes()
+	if !bytes.Equal(decryptedPlaintext, plaintext) {
+		t.Errorf("流式解密原有加密数据结果不正确")
+	}
+
+	// 使用流式加密加密数据
+	encryptedBuffer := &bytes.Buffer{}
+	_, err = EncryptStream(bytes.NewReader(plaintext), encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, bufferSize)
+	if err != nil {
+		t.Fatalf("流式加密失败: %v", err)
+	}
+
+	// 使用原有 DecryptWithKeyPair 函数解密流式加密结果
+	streamEncryptedData := encryptedBuffer.Bytes()
+	deserializedData, err := DeserializeEncryptedData(streamEncryptedData)
+	if err != nil {
+		t.Fatalf("反序列化流式加密数据失败: %v", err)
+	}
+
+	decryptedPlaintext2, err := DecryptWithKeyPair(deserializedData, recipientKeyPair)
+	if err != nil {
+		t.Fatalf("原有解密流式加密数据失败: %v", err)
+	}
+
+	if !bytes.Equal(decryptedPlaintext2, plaintext) {
+		t.Errorf("原有解密流式加密数据结果不正确")
+	}
+}
+
+// TestEncryptStreamErrors 测试流式加密的错误处理
+func TestEncryptStreamErrors(t *testing.T) {
+	senderKeyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("生成发送方密钥对失败: %v", err)
+	}
+
+	recipientKeyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("生成接收方密钥对失败: %v", err)
+	}
+
+	plaintext := []byte("Test error handling")
+
+	// 测试写入失败
+	errorWriter := &errorWriter{shouldFail: true}
+	_, err = EncryptStream(bytes.NewReader(plaintext), errorWriter, senderKeyPair, recipientKeyPair.PublicKey, 4096)
+	if err == nil {
+		t.Errorf("期望写入失败错误，但没有得到错误")
+	}
+
+	// 测试读取失败
+	errorReader := &errorReader{shouldFail: true}
+	encryptedBuffer := &bytes.Buffer{}
+	_, err = EncryptStream(errorReader, encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, 4096)
+	if err == nil {
+		t.Errorf("期望读取失败错误，但没有得到错误")
+	}
+}
+
+// TestDecryptStreamErrors 测试流式解密的错误处理
+func TestDecryptStreamErrors(t *testing.T) {
+	recipientKeyPair, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatalf("生成接收方密钥对失败: %v", err)
+	}
+
+	bufferSize := 4096
+
+	// 测试数据太短
+	shortData := make([]byte, HeaderSize-1)
+	decryptedBuffer := &bytes.Buffer{}
+	_, _, err = DecryptStream(bytes.NewReader(shortData), decryptedBuffer, recipientKeyPair, bufferSize)
+	if err != ErrInvalidCiphertext {
+		t.Errorf("期望 ErrInvalidCiphertext 错误，得到: %v", err)
+	}
+
+	// 测试无效版本
+	invalidVersionData := make([]byte, HeaderSize)
+	invalidVersionData[0] = 0x02 // 无效版本
+	_, _, err = DecryptStream(bytes.NewReader(invalidVersionData), decryptedBuffer, recipientKeyPair, bufferSize)
+	if err != ErrInvalidVersion {
+		t.Errorf("期望 ErrInvalidVersion 错误，得到: %v", err)
+	}
+
+	// 测试写入失败
+	senderKeyPair, _ := GenerateKeyPair()
+	plaintext := []byte("Test data")
+	encryptedBuffer := &bytes.Buffer{}
+	EncryptStream(bytes.NewReader(plaintext), encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, bufferSize)
+
+	errorWriter := &errorWriter{shouldFail: true}
+	_, _, err = DecryptStream(bytes.NewReader(encryptedBuffer.Bytes()), errorWriter, recipientKeyPair, bufferSize)
+	if err == nil {
+		t.Errorf("期望写入失败错误，但没有得到错误")
+	}
+}
+
+// errorWriter 是一个模拟写入失败的 io.Writer
+type errorWriter struct {
+	shouldFail bool
+}
+
+func (w *errorWriter) Write(p []byte) (n int, err error) {
+	if w.shouldFail {
+		return 0, fmt.Errorf("模拟写入失败")
+	}
+	return len(p), nil
+}
+
+// errorReader 是一个模拟读取失败的 io.Reader
+type errorReader struct {
+	shouldFail bool
+}
+
+func (r *errorReader) Read(p []byte) (n int, err error) {
+	if r.shouldFail {
+		return 0, fmt.Errorf("模拟读取失败")
+	}
+	return 0, io.EOF
+}
+
+// BenchmarkEncryptStream 流式加密性能基准测试
+func BenchmarkEncryptStream(b *testing.B) {
+	senderKeyPair, _ := GenerateKeyPair()
+	recipientKeyPair, _ := GenerateKeyPair()
+	plaintext := make([]byte, 1024*1024) // 1MB 数据
+	rand.Read(plaintext)
+
+	bufferSize := 4096 // 4KB 缓冲区
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		encryptedBuffer := &bytes.Buffer{}
+		EncryptStream(bytes.NewReader(plaintext), encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, bufferSize)
+	}
+}
+
+// BenchmarkDecryptStream 流式解密性能基准测试
+func BenchmarkDecryptStream(b *testing.B) {
+	senderKeyPair, _ := GenerateKeyPair()
+	recipientKeyPair, _ := GenerateKeyPair()
+	plaintext := make([]byte, 1024*1024) // 1MB 数据
+	rand.Read(plaintext)
+
+	bufferSize := 4096 // 4KB 缓冲区
+
+	// 预先加密数据
+	encryptedBuffer := &bytes.Buffer{}
+	EncryptStream(bytes.NewReader(plaintext), encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, bufferSize)
+	encryptedData := encryptedBuffer.Bytes()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		decryptedBuffer := &bytes.Buffer{}
+		DecryptStream(bytes.NewReader(encryptedData), decryptedBuffer, recipientKeyPair, bufferSize)
+	}
+}
+
+// BenchmarkEncryptStreamDifferentBufferSizes 测试不同缓冲区大小的性能
+func BenchmarkEncryptStreamDifferentBufferSizes(b *testing.B) {
+	senderKeyPair, _ := GenerateKeyPair()
+	recipientKeyPair, _ := GenerateKeyPair()
+	plaintext := make([]byte, 1024*1024) // 1MB 数据
+	rand.Read(plaintext)
+
+	bufferSizes := []int{
+		1024,   // 1KB
+		4096,   // 4KB
+		16384,  // 16KB
+		65536,  // 64KB
+	}
+
+	for _, bufferSize := range bufferSizes {
+		b.Run(fmt.Sprintf("buffer_%d", bufferSize), func(b *testing.B) {
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				encryptedBuffer := &bytes.Buffer{}
+				EncryptStream(bytes.NewReader(plaintext), encryptedBuffer, senderKeyPair, recipientKeyPair.PublicKey, bufferSize)
+			}
+		})
+	}
+}

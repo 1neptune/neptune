@@ -287,22 +287,55 @@ func (s *Sosemanuk) NextBytes(dst []byte) {
 }
 
 // XORKeyStream XORs the keystream with the input and writes to dst
+// 优化版本：批量处理 16 字节，减少函数调用开销
 func (s *Sosemanuk) XORKeyStream(dst, src []byte) {
 	if len(dst) < len(src) {
 		return
 	}
 
-	for i := 0; i < len(src); i += 4 {
-		word := s.NextWord()
-		if i+4 <= len(src) {
-			srcWord := binary.LittleEndian.Uint32(src[i:])
-			dstWord := srcWord ^ word
-			binary.LittleEndian.PutUint32(dst[i:], dstWord)
-		} else {
-			// Handle remaining bytes
-			for j := 0; i+j < len(src); j++ {
-				dst[i+j] = src[i+j] ^ byte(word>>(j*8))
-			}
+	// 主循环：批量处理 16 字节块（一次生成 4 个 uint32）
+	i := 0
+	for i+16 <= len(src) {
+		// 确保 out 缓冲区有数据
+		if s.pos >= 4 {
+			s.generateOutput()
+		}
+
+		// 一次处理 4 个 uint32（16 字节），减少函数调用
+		srcWord0 := binary.LittleEndian.Uint32(src[i:])
+		srcWord1 := binary.LittleEndian.Uint32(src[i+4:])
+		srcWord2 := binary.LittleEndian.Uint32(src[i+8:])
+		srcWord3 := binary.LittleEndian.Uint32(src[i+12:])
+
+		binary.LittleEndian.PutUint32(dst[i:], srcWord0^s.out[s.pos])
+		binary.LittleEndian.PutUint32(dst[i+4:], srcWord1^s.out[s.pos+1])
+		binary.LittleEndian.PutUint32(dst[i+8:], srcWord2^s.out[s.pos+2])
+		binary.LittleEndian.PutUint32(dst[i+12:], srcWord3^s.out[s.pos+3])
+
+		s.pos += 4
+		i += 16
+	}
+
+	// 处理剩余的 4 字节块
+	for i+4 <= len(src) {
+		if s.pos >= 4 {
+			s.generateOutput()
+		}
+		srcWord := binary.LittleEndian.Uint32(src[i:])
+		binary.LittleEndian.PutUint32(dst[i:], srcWord^s.out[s.pos])
+		s.pos++
+		i += 4
+	}
+
+	// 处理最后不足 4 字节的部分
+	if i < len(src) {
+		if s.pos >= 4 {
+			s.generateOutput()
+		}
+		word := s.out[s.pos]
+		s.pos++
+		for j := 0; i+j < len(src); j++ {
+			dst[i+j] = src[i+j] ^ byte(word>>(j*8))
 		}
 	}
 }

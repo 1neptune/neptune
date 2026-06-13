@@ -112,6 +112,144 @@ neptune download \
     --output ./downloads/
 ```
 
+### 场景五：大文件流式加密
+
+当加密大文件（如视频、数据库备份）时，使用流式加密避免内存溢出：
+
+```bash
+# 加密 10GB 视频文件，使用 8MB 块大小
+neptune encrypt \
+    --input video_10gb.mp4 \
+    --output video_10gb.ntp \
+    --public-key recipient.key \
+    --private-key my.key \
+    --chunk-size 8MB
+
+# 加密后删除源文件（节省磁盘空间）
+neptune encrypt \
+    --input database_backup.sql \
+    --output database_backup.ntp \
+    --public-key recipient.key \
+    --private-key my.key \
+    --chunk-size 4MB \
+    --remove-source
+```
+
+### 场景六：并行加密大量文件
+
+加密包含大量文件的目录时，使用并行处理加速：
+
+```bash
+# 加密整个项目目录（8 核 CPU，SSD 存储）
+neptune encrypt \
+    --input /data/projects \
+    --output /backup/encrypted \
+    --public-key recipient.key \
+    --private-key my.key \
+    --recursive \
+    --parallel 8 \
+    --chunk-size 4MB
+
+# 加密指定类型文件（只加密 PDF 和 DOCX）
+neptune encrypt \
+    --input /data/documents \
+    --output /backup/encrypted \
+    --public-key recipient.key \
+    --private-key my.key \
+    --recursive \
+    --parallel 4 \
+    --include "*.pdf" \
+    --include "*.docx"
+
+# 加密时排除临时文件
+neptune encrypt \
+    --input /data/workspace \
+    --output /backup/encrypted \
+    --public-key recipient.key \
+    --private-key my.key \
+    --recursive \
+    --parallel 4 \
+    --exclude "*.tmp" \
+    --exclude "*.log" \
+    --exclude "*.bak"
+```
+
+### 场景七：磁盘空间紧张时的加密
+
+当磁盘空间有限时，加密一个文件后立即删除源文件，释放空间：
+
+```bash
+# 加密目录，每个文件加密完成后立即删除源文件
+neptune encrypt \
+    --input /data/large_files \
+    --output /backup/encrypted \
+    --public-key recipient.key \
+    --private-key my.key \
+    --recursive \
+    --remove-source \
+    --chunk-size 1MB
+
+# 加密后源文件被删除，磁盘空间逐步释放
+# 加密过程中释放的空间可用于后续文件加密
+```
+
+### 场景八：网络存储加密
+
+加密到网络存储时，调整参数优化传输效率：
+
+```bash
+# 加密到网络存储（带宽受限）
+neptune encrypt \
+    --input /data/documents \
+    --output /network/encrypted \
+    --public-key recipient.key \
+    --private-key my.key \
+    --recursive \
+    --parallel 4 \
+    --chunk-size 2MB
+
+# 内存受限环境（如 2GB 内存服务器）
+neptune encrypt \
+    --input large_file.iso \
+    --output large_file.ntp \
+    --public-key recipient.key \
+    --private-key my.key \
+    --chunk-size 512KB \
+    --parallel 1
+```
+
+### 场景九：解密后自动删除加密文件
+
+解密完成后自动删除原始加密文件，适用于需要清理加密文件的场景：
+
+```bash
+# 解密单个文件并删除源文件
+neptune decrypt \
+    --input encrypted.ntp \
+    --output decrypted.txt \
+    --private-key my.key \
+    --remove-source
+
+# 解密目录并删除所有加密文件（并行处理）
+neptune decrypt \
+    --input /backup/encrypted \
+    --output /data/restored \
+    --private-key my.key \
+    --recursive \
+    --remove-source \
+    --parallel 4 \
+    --chunk-size 1MB
+
+# 解密到原位置并覆盖（原地解密）
+neptune decrypt \
+    --input /data/files \
+    --output /data/files \
+    --private-key my.key \
+    --recursive \
+    --remove-source \
+    --force
+```
+
 ## 命令参考
 
 ### keygen - 生成密钥对
@@ -192,6 +330,23 @@ neptune decrypt \
     --output /data/decrypted \
     --private-key my.key \
     --recursive
+
+# 解密后删除加密文件
+neptune decrypt \
+    --input encrypted.ntp \
+    --output plaintext.txt \
+    --private-key my.key \
+    --remove-source
+
+# 解密目录并删除源文件（并行处理）
+neptune decrypt \
+    --input /backup/encrypted \
+    --output /data/restored \
+    --private-key my.key \
+    --recursive \
+    --remove-source \
+    --parallel 4 \
+    --chunk-size 1MB
 ```
 
 ### download - 下载远程资源
@@ -235,6 +390,8 @@ neptune download \
 | `--exclude` | - | 排除匹配的文件模式 |
 | `--remove-source` | `-r` | 加密后删除源文件 |
 | `--force` | `-f` | 强制覆盖输出文件 |
+| `--chunk-size` | - | 流式加密的块大小（如 1MB, 512KB），默认 1MB |
+| `--parallel` | - | 并行加密的协程数，默认 1（串行） |
 
 ### decrypt 命令参数
 
@@ -245,6 +402,9 @@ neptune download \
 | `--private-key` | `-k` | 私钥文件或 URL |
 | `--recursive` | `-R` | 递归解密目录 |
 | `--force` | `-f` | 强制覆盖输出文件 |
+| `--remove-source` | `-r` | 解密成功后删除源加密文件 |
+| `--chunk-size` | - | 流式解密的块大小（如 1MB, 512KB），默认 1MB |
+| `--parallel` | - | 并行解密的协程数，默认 1（串行） |
 
 ### download 命令参数
 
@@ -257,9 +417,80 @@ neptune download \
 ## 安全提示
 
 1. **密钥管理**: 私钥应妥善保管，切勿泄露给他人
-2. **源文件删除**: `--remove-source` 选项会永久删除原始文件，请谨慎使用
+2. **源文件删除**: `--remove-source` 选项会直接永久删除原始文件，无需确认，请谨慎使用
 3. **备份**: 加密前建议备份重要数据
 4. **远程密钥**: 使用远程密钥时确保连接安全（建议使用 HTTPS）
+
+## 大文件加密最佳实践
+
+### 块大小选择（--chunk-size）
+
+| 文件大小 | 推荐块大小 | 说明 |
+|---------|-----------|------|
+| < 100MB | 默认（1MB） | 小文件使用默认值即可 |
+| 100MB - 1GB | 2MB - 4MB | 中等文件，平衡内存和性能 |
+| 1GB - 10GB | 4MB - 8MB | 大文件，减少 I/O 操作次数 |
+| > 10GB | 8MB - 16MB | 超大文件，优化吞吐量 |
+
+**注意事项**：
+- 块大小越大，内存占用越高，但 I/O 操作次数越少
+- 块大小过小会导致频繁的 I/O 操作，影响性能
+- 建议块大小为磁盘块大小的整数倍（通常为 4KB 的倍数）
+
+### 并行数选择（--parallel）
+
+| 场景 | 推荐并行数 | 说明 |
+|------|-----------|------|
+| SSD 存储 | CPU 核心数 | 充分利用 SSD 的高 IOPS |
+| HDD 存储 | 2 - 4 | 避免磁头频繁寻道 |
+| 网络存储 | 4 - 8 | 根据网络带宽调整 |
+| 内存受限 | 1 - 2 | 减少内存压力 |
+
+**注意事项**：
+- 并行数过高可能导致内存不足或磁盘 I/O 竞争
+- 建议并行数不超过 CPU 核心数
+- 对于大量小文件，较高的并行数效果更好
+
+### 推荐配置示例
+
+```bash
+# 加密大型视频文件（10GB）
+neptune encrypt \
+    --input video_10gb.mp4 \
+    --output video_10gb.ntp \
+    --public-key recipient.key \
+    --private-key my.key \
+    --chunk-size 8MB
+
+# 加密整个目录（SSD 存储，8 核 CPU）
+neptune encrypt \
+    --input /data/projects \
+    --output /backup/encrypted \
+    --public-key recipient.key \
+    --private-key my.key \
+    --recursive \
+    --parallel 8 \
+    --chunk-size 4MB
+
+# 加密到网络存储（带宽受限）
+neptune encrypt \
+    --input /data/documents \
+    --output /network/encrypted \
+    --public-key recipient.key \
+    --private-key my.key \
+    --recursive \
+    --parallel 4 \
+    --chunk-size 2MB
+
+# 内存受限环境（如 2GB 内存）
+neptune encrypt \
+    --input large_file.iso \
+    --output large_file.ntp \
+    --public-key recipient.key \
+    --private-key my.key \
+    --chunk-size 512KB \
+    --parallel 1
+```
 
 ## 许可证
 

@@ -712,6 +712,87 @@ func BenchmarkKeyStream(b *testing.B) {
 	}
 }
 
+// BenchmarkXORKeyStream benchmarks the XORKeyStream function
+// 优化后的版本：批量处理 16 字节，减少函数调用开销
+func BenchmarkXORKeyStream(b *testing.B) {
+	key := make([]byte, KeySize128)
+	iv := make([]byte, IVSize)
+
+	rand.Read(key)
+	rand.Read(iv)
+
+	cipher, _ := New(key, iv)
+	src := make([]byte, 1024)
+	dst := make([]byte, 1024)
+	rand.Read(src)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cipher.Reset(key, iv)
+		cipher.XORKeyStream(dst, src)
+	}
+}
+
+// BenchmarkXORKeyStreamSmall 测试小数据量的 XORKeyStream 性能
+func BenchmarkXORKeyStreamSmall(b *testing.B) {
+	key := make([]byte, KeySize128)
+	iv := make([]byte, IVSize)
+
+	rand.Read(key)
+	rand.Read(iv)
+
+	cipher, _ := New(key, iv)
+	src := make([]byte, 64) // 64 字节
+	dst := make([]byte, 64)
+	rand.Read(src)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cipher.Reset(key, iv)
+		cipher.XORKeyStream(dst, src)
+	}
+}
+
+// BenchmarkXORKeyStreamMedium 测试中等数据量的 XORKeyStream 性能
+func BenchmarkXORKeyStreamMedium(b *testing.B) {
+	key := make([]byte, KeySize128)
+	iv := make([]byte, IVSize)
+
+	rand.Read(key)
+	rand.Read(iv)
+
+	cipher, _ := New(key, iv)
+	src := make([]byte, 16*1024) // 16KB
+	dst := make([]byte, 16*1024)
+	rand.Read(src)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cipher.Reset(key, iv)
+		cipher.XORKeyStream(dst, src)
+	}
+}
+
+// BenchmarkXORKeyStreamLarge 测试大数据量的 XORKeyStream 性能
+func BenchmarkXORKeyStreamLarge(b *testing.B) {
+	key := make([]byte, KeySize128)
+	iv := make([]byte, IVSize)
+
+	rand.Read(key)
+	rand.Read(iv)
+
+	cipher, _ := New(key, iv)
+	src := make([]byte, 1024*1024) // 1MB
+	dst := make([]byte, 1024*1024)
+	rand.Read(src)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cipher.Reset(key, iv)
+		cipher.XORKeyStream(dst, src)
+	}
+}
+
 // FuzzEncryptDecrypt is a fuzz test for encryption/decryption
 func FuzzEncryptDecrypt(f *testing.F) {
 	// Add seed corpus

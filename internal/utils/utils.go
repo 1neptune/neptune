@@ -11,7 +11,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -106,9 +109,10 @@ func ValidateFileForRead(path string) error {
 		return NewFileEmptyError(path)
 	}
 
-	if info.Size() > MaxFileSize {
-		return NewFileTooLargeError(path, info.Size(), MaxFileSize)
-	}
+	// 文件大小限制已移除，因为流式加密可以处理任意大小的文件
+	// if info.Size() > MaxFileSize {
+	// 	return NewFileTooLargeError(path, info.Size(), MaxFileSize)
+	// }
 
 	return nil
 }
@@ -1196,4 +1200,167 @@ func ExtractFileNameFromURL(urlStr string) string {
 		return "downloaded"
 	}
 	return filename
+}
+
+// BufferPool 是一个使用 sync.Pool 实现的缓冲区池
+// 用于复用缓冲区，减少内存分配和 GC 压力
+type BufferPool struct {
+	pool sync.Pool
+}
+
+// NewBufferPool 创建一个新的缓冲区池
+// 默认创建大小为 4KB 的缓冲区
+func NewBufferPool() *BufferPool {
+	return &BufferPool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 0, 4096) // 默认容量 4KB
+			},
+		},
+	}
+}
+
+// NewBufferPoolWithSize 创建一个指定默认大小的缓冲区池
+func NewBufferPoolWithSize(defaultSize int) *BufferPool {
+	return &BufferPool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 0, defaultSize)
+			},
+		},
+	}
+}
+
+// GetBuffer 从池中获取一个缓冲区
+// 如果池中没有可用的缓冲区，则创建一个新的
+// 返回的缓冲区长度为 0，容量为默认大小或更大
+func (bp *BufferPool) GetBuffer(size int) []byte {
+	buf := bp.pool.Get().([]byte)
+	// 如果缓冲区容量不足，创建一个新的
+	if cap(buf) < size {
+		return make([]byte, 0, size)
+	}
+	// 重置长度为 0
+	return buf[:0]
+}
+
+// PutBuffer 将缓冲区放回池中以便复用
+// 注意：不要在使用完缓冲区后继续引用它
+func (bp *BufferPool) PutBuffer(buf []byte) {
+	if buf == nil {
+		return
+	}
+	// 重置缓冲区
+	buf = buf[:0]
+	bp.pool.Put(buf)
+}
+
+// GetBufferDefault 获取默认大小的缓冲区
+func (bp *BufferPool) GetBufferDefault() []byte {
+	return bp.GetBuffer(4096)
+}
+
+// 全局缓冲区池实例
+var globalBufferPool = NewBufferPool()
+
+// GetGlobalBuffer 从全局缓冲区池获取缓冲区
+func GetGlobalBuffer(size int) []byte {
+	return globalBufferPool.GetBuffer(size)
+}
+
+// PutGlobalBuffer 将缓冲区放回全局缓冲区池
+func PutGlobalBuffer(buf []byte) {
+	globalBufferPool.PutBuffer(buf)
+}
+
+// ParseChunkSize 解析缓冲区大小字符串
+// 支持格式: "64KB", "1MB", "4MB", "1GB" 等
+// 不区分大小写
+// 返回字节数
+func ParseChunkSize(sizeStr string) (int, error) {
+	if sizeStr == "" {
+		return 0, NewInvalidInputError("size", "大小字符串为空")
+	}
+
+	// 正则表达式匹配数字和单位
+	re := regexp.MustCompile(`^(\d+(?:\.\d+)?)\s*(KB|MB|GB|B)?$`)
+	matches := re.FindStringSubmatch(strings.ToUpper(sizeStr))
+
+	if matches == nil {
+		return 0, NewInvalidInputError("size", fmt.Sprintf("无效的大小格式: %s，支持格式: 64KB, 1MB, 4MB, 1GB", sizeStr))
+	}
+
+	// 解析数值
+	value, err := strconv.ParseFloat(matches[1], 64)
+	if err != nil {
+		return 0, NewInvalidInputError("size", fmt.Sprintf("无法解析数值: %s", matches[1]))
+	}
+
+	if value < 0 {
+		return 0, NewInvalidInputError("size", "大小不能为负数")
+	}
+
+	// 根据单位计算字节数
+	unit := matches[2]
+	var bytes int64
+
+	switch unit {
+	case "", "B":
+		bytes = int64(value)
+	case "KB":
+		bytes = int64(value * 1024)
+	case "MB":
+		bytes = int64(value * 1024 * 1024)
+	case "GB":
+		bytes = int64(value * 1024 * 1024 * 1024)
+	default:
+		return 0, NewInvalidInputError("size", fmt.Sprintf("不支持的单位: %s", unit))
+	}
+
+	// 检查是否溢出
+	if bytes > int64(1<<31-1) { // int 最大值
+		return 0, NewInvalidInputError("size", fmt.Sprintf("大小超出限制: %d 字节", bytes))
+	}
+
+	return int(bytes), nil
+}
+
+// FormatChunkSize 将字节数格式化为人类可读的字符串
+func FormatChunkSize(bytes int) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.2fGB", float64(bytes)/float64(GB))
+	case bytes >= MB:
+		return fmt.Sprintf("%.2fMB", float64(bytes)/float64(MB))
+	case bytes >= KB:
+		return fmt.Sprintf("%.2fKB", float64(bytes)/float64(KB))
+	default:
+		return fmt.Sprintf("%dB", bytes)
+	}
+}
+
+// ValidateChunkSize 验证缓冲区大小是否在合理范围内
+func ValidateChunkSize(size int) error {
+	const (
+		MinChunkSize = 1024      // 最小 1KB
+		MaxChunkSize = 100 * 1024 * 1024 // 最大 100MB
+	)
+
+	if size < MinChunkSize {
+		return NewInvalidParameterError("chunk-size", fmt.Sprintf("%d", size),
+			fmt.Sprintf("缓冲区大小不能小于 %s", FormatChunkSize(MinChunkSize)))
+	}
+
+	if size > MaxChunkSize {
+		return NewInvalidParameterError("chunk-size", fmt.Sprintf("%d", size),
+			fmt.Sprintf("缓冲区大小不能超过 %s", FormatChunkSize(MaxChunkSize)))
+	}
+
+	return nil
 }
