@@ -1,0 +1,4 @@
+- [x] Checkpoint 1: --remote-url 参数只下载文件不加密
+- [x] Checkpoint 2: --input 参数仍然是加密的唯一目标
+- [x] Checkpoint 3: 支持多个 --remote-url 批量下载
+- [x] Checkpoint 4: README.md 文档已更新

@@ -1,0 +1,7 @@
+- [ ] Checkpoint 1: HTTP 下载函数已实现
+- [ ] Checkpoint 2: URL 检测函数已实现
+- [ ] Checkpoint 3: 支持从 URL 加载私钥
+- [ ] Checkpoint 4: 支持从 URL 加载公钥
+- [ ] Checkpoint 5: 支持从 URL 下载输入文件
+- [ ] Checkpoint 6: 超时配置选项已添加
+- [ ] Checkpoint 7: README.md 已更新
