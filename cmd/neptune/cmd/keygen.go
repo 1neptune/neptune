@@ -71,12 +71,12 @@ Examples:
 		}
 
 		// Output results
-		utils.PrintSuccess("密钥对生成成功!")
-		utils.PrintInfo("私钥文件: %s", privateKeyFile)
-		utils.PrintInfo("公钥文件: %s", publicKeyFile)
-		utils.PrintInfo("编码格式: %s", keygenEncoding)
-		fmt.Printf("\n公钥内容 (可分享):\n%s\n", neptuneCurve25519.SerializePublicKey(keyPair.PublicKey, neptuneCurve25519.EncodingType(encoding)))
-		utils.PrintWarning("请妥善保管私钥，切勿泄露!")
+		utils.PrintSuccess("Key pair generated successfully")
+		utils.PrintInfo("Private key saved to: %s", privateKeyFile)
+		utils.PrintInfo("Public key saved to: %s", publicKeyFile)
+		utils.PrintInfo("Encoding format: %s", keygenEncoding)
+		fmt.Printf("\nPublic key (for sharing):\n%s\n", neptuneCurve25519.SerializePublicKey(keyPair.PublicKey, neptuneCurve25519.EncodingType(encoding)))
+		utils.PrintWarning("Keep your private key secure!")
 
 		return nil
 	},

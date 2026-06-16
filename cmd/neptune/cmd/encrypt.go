@@ -26,13 +26,14 @@ var (
 	encryptKeyEncoding     string
 	encryptForce           bool
 	encryptForceOverride   bool
-	encryptRemoveSource    bool
-	encryptRecursive       bool
+	encryptRemoveSource       bool
+	encryptSecureRemoveSource bool
+	encryptRecursive          bool
 	encryptInclude         []string
 	encryptExclude         []string
 	encryptTimeout         int
-	encryptChunkSize       string // 流式加密的缓冲区大小
-	encryptParallel        int    // 并行处理数
+	encryptChunkSize       string // buffer size for streaming encryption
+	encryptParallel        int    // number of parallel processes
 )
 
 var encryptCmd = &cobra.Command{
@@ -83,12 +84,12 @@ Examples:
 			return utils.NewMissingInputError("private-key")
 		}
 
-		// --input 参数只能是本地文件路径，不能是 URL
+		// --input parameter must be a local file path, not a URL
 		if encryptInputFile != "" && utils.IsHTTPURL(encryptInputFile) {
 			return &utils.NeptuneError{
 				Code:       utils.ErrCodeInvalidInput,
-				Message:    "--input 参数不支持 URL",
-				Suggestion: "请使用 download 命令下载远程资源，或使用本地文件路径",
+				Message:    "--input parameter does not support URL",
+				Suggestion: "use download command to download remote resources, or use local file path",
 			}
 		}
 
@@ -104,18 +105,23 @@ Examples:
 			return err
 		}
 
-		// Load sender's private key (纯内存加载)
+		// Load sender's private key (memory-only)
 		var senderKeyPair *neptuneCurve25519.KeyPair
+		var privateKeyData []byte
 		if utils.IsHTTPURL(encryptPrivateKey) {
-			utils.PrintInfo("正在从远程加载私钥到内存: %s", encryptPrivateKey)
-			keyData, err := utils.DownloadBytes(encryptPrivateKey, timeout)
+			utils.PrintInfo("Loading private key from remote to memory: %s", encryptPrivateKey)
+			privateKeyData, err = utils.DownloadBytes(encryptPrivateKey, timeout)
 			if err != nil {
 				return err
 			}
-			senderKeyPair, err = neptuneCurve25519.LoadKeyPairFromBytes(keyData, neptuneCurve25519.EncodingType(keyEncoding))
+			senderKeyPair, err = neptuneCurve25519.LoadKeyPairFromBytes(privateKeyData, neptuneCurve25519.EncodingType(keyEncoding))
 			if err != nil {
 				return utils.NewKeyReadError(encryptPrivateKey, err)
 			}
+			// clear key data from memory
+			utils.PrintInfo("[Memory] Clearing downloaded private key data (%d bytes)...", len(privateKeyData))
+			utils.SecureZeroMemory(privateKeyData)
+			utils.PrintSuccess("[Memory] Private key data cleared from memory")
 		} else {
 			if err := utils.ValidateFilePath(encryptPrivateKey); err != nil {
 				return err
@@ -126,18 +132,30 @@ Examples:
 			}
 		}
 
-		// Load recipient's public key (纯内存加载)
+		// clear private key URL
+		if utils.IsHTTPURL(encryptPrivateKey) {
+			utils.PrintInfo("[Memory] Clearing private key URL...")
+			utils.SecureWipeString(&encryptPrivateKey)
+			utils.PrintSuccess("[Memory] Private key URL cleared from memory")
+		}
+
+		// Load recipient's public key (memory-only)
 		var recipientPublicKey [neptuneCurve25519.KeySize]byte
+		var publicKeyData []byte
 		if utils.IsHTTPURL(encryptPublicKey) {
-			utils.PrintInfo("正在从远程加载公钥到内存: %s", encryptPublicKey)
-			keyData, err := utils.DownloadBytes(encryptPublicKey, timeout)
+			utils.PrintInfo("Loading public key from remote to memory: %s", encryptPublicKey)
+			publicKeyData, err = utils.DownloadBytes(encryptPublicKey, timeout)
 			if err != nil {
 				return err
 			}
-			recipientPublicKey, err = neptuneCurve25519.LoadPublicKeyFromBytes(keyData, neptuneCurve25519.EncodingType(keyEncoding))
+			recipientPublicKey, err = neptuneCurve25519.LoadPublicKeyFromBytes(publicKeyData, neptuneCurve25519.EncodingType(keyEncoding))
 			if err != nil {
 				return utils.NewKeyReadError(encryptPublicKey, err)
 			}
+			// clear key data from memory
+			utils.PrintInfo("[Memory] Clearing downloaded public key data (%d bytes)...", len(publicKeyData))
+			utils.SecureZeroMemory(publicKeyData)
+			utils.PrintSuccess("[Memory] Public key data cleared from memory")
 		} else {
 			if err := utils.ValidateFilePath(encryptPublicKey); err != nil {
 				return err
@@ -146,6 +164,13 @@ Examples:
 			if err != nil {
 				return utils.NewKeyReadError(encryptPublicKey, err)
 			}
+		}
+
+		// clear public key URL
+		if utils.IsHTTPURL(encryptPublicKey) {
+			utils.PrintInfo("[Memory] Clearing public key URL...")
+			utils.SecureWipeString(&encryptPublicKey)
+			utils.PrintSuccess("[Memory] Public key URL cleared from memory")
 		}
 
 		// Check if input is a directory
@@ -157,7 +182,7 @@ Examples:
 
 			if info.IsDir() {
 				if !encryptRecursive {
-					return utils.NewInvalidInputError("input", "输入是目录，请使用 --recursive 选项")
+					return utils.NewInvalidInputError("input", "input is a directory, use --recursive flag")
 				}
 				return encryptDirectory(encryptInputFile, encryptOutputFile, senderKeyPair, recipientPublicKey)
 			}
@@ -169,18 +194,18 @@ Examples:
 }
 
 func encryptSingleFileOrText(inputFile, outputFile, text string, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
-	// 解析缓冲区大小
+	// parsing buffer size
 	chunkSize, err := utils.ParseChunkSize(encryptChunkSize)
 	if err != nil {
 		return err
 	}
 
-	// 验证缓冲区大小
+	// validating buffer size
 	if err := utils.ValidateChunkSize(chunkSize); err != nil {
 		return err
 	}
 
-	// 对于文本加密，使用原有方式（数据量小，无需流式处理）
+	// for text encryption, use original method
 	if inputFile == "" {
 		plaintext := []byte(text)
 		
@@ -203,10 +228,10 @@ func encryptSingleFileOrText(inputFile, outputFile, text string, senderKeyPair *
 				return utils.NewFileWriteError(outputFile, err)
 			}
 
-			utils.PrintSuccess("数据加密成功!")
-			utils.PrintInfo("输入: 文本 (%s)", utils.FormatFileSize(int64(len(plaintext))))
-			utils.PrintInfo("输出: %s (%s)", outputFile, utils.FormatFileSize(int64(len(ciphertext))))
-			utils.PrintWarning("请妥善保管加密文件和密钥")
+			utils.PrintSuccess("Data encryption successful!")
+			utils.PrintInfo("Input: text (%s)", utils.FormatFileSize(int64(len(plaintext))))
+			utils.PrintInfo("Output: %s (%s)", outputFile, utils.FormatFileSize(int64(len(ciphertext))))
+			utils.PrintWarning("Keep encrypted files and keys secure")
 		} else {
 			// Output to stdout
 			if _, err := io.WriteString(os.Stdout, string(ciphertext)); err != nil {
@@ -217,7 +242,7 @@ func encryptSingleFileOrText(inputFile, outputFile, text string, senderKeyPair *
 		return nil
 	}
 
-	// 对于文件加密，使用流式加密
+	// for file encryption, use streaming encryption
 	// Validate input file
 	if err := utils.ValidateFileForRead(inputFile); err != nil {
 		return err
@@ -228,36 +253,36 @@ func encryptSingleFileOrText(inputFile, outputFile, text string, senderKeyPair *
 		return err
 	}
 
-	// 获取文件大小用于显示
+	// get file size for display
 	fileSize, err := utils.GetFileSize(inputFile)
 	if err != nil {
 		return err
 	}
 
-	// 打开输入文件
+	// open input file
 	inputReader, err := os.Open(inputFile)
 	if err != nil {
 		return utils.NewFileReadError(inputFile, err)
 	}
 
-	// 创建输出文件
+	// create output file
 	if outputFile == "" {
-		// 如果没有指定输出文件，输出到 stdout
+		// if no output file specified, output to stdout
 		outputWriter := os.Stdout
 		
-		utils.PrintInfo("开始流式加密...")
-		utils.PrintInfo("输入: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
-		utils.PrintInfo("缓冲区大小: %s", utils.FormatChunkSize(chunkSize))
+		utils.PrintInfo("Starting streaming encryption...")
+		utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
+		utils.PrintInfo("Buffer size: %s", utils.FormatChunkSize(chunkSize))
 		
-		// 使用带进度显示的流式加密
+		// use streaming encryption with progress display
 		totalBytes, err := encryptStreamWithProgress(inputReader, outputWriter, senderKeyPair, recipientPublicKey, chunkSize, fileSize)
 		if err != nil {
 			return err
 		}
 		
-		utils.PrintSuccess("数据加密成功!")
-		utils.PrintInfo("加密数据量: %s", utils.FormatFileSize(totalBytes))
-		utils.PrintWarning("请妥善保管加密文件和密钥")
+		utils.PrintSuccess("Data encryption successful!")
+		utils.PrintInfo("Encrypted data size: %s", utils.FormatFileSize(totalBytes))
+		utils.PrintWarning("Keep encrypted files and keys secure")
 		
 		inputReader.Close()
 		return nil
@@ -268,134 +293,139 @@ func encryptSingleFileOrText(inputFile, outputFile, text string, senderKeyPair *
 		return err
 	}
 
-	// 创建输出文件
+	// create output file
 	outputWriter, err := os.Create(outputFile)
 	if err != nil {
 		return utils.NewFileWriteError(outputFile, err)
 	}
 	defer outputWriter.Close()
 
-	utils.PrintInfo("开始流式加密...")
-	utils.PrintInfo("输入: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
-	utils.PrintInfo("缓冲区大小: %s", utils.FormatChunkSize(chunkSize))
+	utils.PrintInfo("Starting streaming encryption...")
+	utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
+	utils.PrintInfo("Buffer size: %s", utils.FormatChunkSize(chunkSize))
 
-	// 使用带进度显示的流式加密
+	// use streaming encryption with progress display
 	totalBytes, err := encryptStreamWithProgress(inputReader, outputWriter, senderKeyPair, recipientPublicKey, chunkSize, fileSize)
 	if err != nil {
 		return err
 	}
 
-	// 获取输出文件大小
+	// get output file size
 	outputFileSize, err := utils.GetFileSize(outputFile)
 	if err != nil {
-		outputFileSize = totalBytes + neptuneCrypto.HeaderSize // 估算大小
+		outputFileSize = totalBytes + neptuneCrypto.HeaderSize // estimated size
 	}
 
-	utils.PrintSuccess("数据加密成功!")
-	utils.PrintInfo("输入: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
-	utils.PrintInfo("输出: %s (%s)", outputFile, utils.FormatFileSize(outputFileSize))
-	utils.PrintWarning("请妥善保管加密文件和密钥")
+	utils.PrintSuccess("Data encryption successful!")
+	utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
+	utils.PrintInfo("Output: %s (%s)", outputFile, utils.FormatFileSize(outputFileSize))
+	utils.PrintWarning("Keep encrypted files and keys secure")
 
 	// Close input file before removing
 	inputReader.Close()
 
 	// Remove source file if requested
-	if encryptRemoveSource && inputFile != "" {
-		if err := os.Remove(inputFile); err != nil {
-			return utils.NewFileDeleteError(inputFile, err)
+	if (encryptRemoveSource || encryptSecureRemoveSource) && inputFile != "" {
+		if encryptSecureRemoveSource {
+			utils.SecureDeleteFiles([]string{inputFile})
+			utils.PrintSuccess("Source file securely removed: %s", inputFile)
+		} else {
+			if err := os.Remove(inputFile); err != nil {
+				return utils.NewFileDeleteError(inputFile, err)
+			}
+			utils.PrintSuccess("Source file removed: %s", inputFile)
 		}
-		utils.PrintSuccess("源文件已删除: %s", inputFile)
 	}
 
 	return nil
 }
 
-// encryptStreamWithProgress 使用带进度显示的流式加密
+// encryptStreamWithProgress use streaming encryption with progress display
 func encryptStreamWithProgress(plaintext io.Reader, writer io.Writer, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte, bufferSize int, totalSize int64) (int64, error) {
-	// 计算共享密钥
+	// compute shared secret
 	sharedSecret, err := senderKeyPair.ComputeSharedSecret(recipientPublicKey)
 	if err != nil {
-		return 0, fmt.Errorf("计算共享密钥失败: %w", err)
+		return 0, fmt.Errorf("compute shared secret failed: %w", err)
 	}
 
-	// 派生加密密钥
+	// derive encryption key
 	context := append([]byte("neptune-encryption"), recipientPublicKey[:]...)
 	encryptionKey, err := neptuneCrypto.DeriveEncryptionKey(sharedSecret[:], context)
 	if err != nil {
-		return 0, fmt.Errorf("派生加密密钥失败: %w", err)
+		return 0, fmt.Errorf("derive encryption key failed: %w", err)
 	}
 
-	// 生成随机 nonce
+	// generate random nonce
 	nonce, err := neptuneCrypto.GenerateNonce()
 	if err != nil {
-		return 0, fmt.Errorf("生成 nonce 失败: %w", err)
+		return 0, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// 创建 Sosemanuk cipher
+	// create Sosemanuk cipher
 	cipher, err := neptuneSosemanuk.New(encryptionKey, nonce[:])
 	if err != nil {
-		return 0, fmt.Errorf("创建 cipher 失败: %w", err)
+		return 0, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	// 写入头部信息
-	// 格式: [Version: 1 byte][SenderPubKey: 32 bytes][Nonce: 16 bytes]
+	// write header info
+	// format: [Version: 1 byte][SenderPubKey: 32 bytes][Nonce: 16 bytes]
 	header := make([]byte, neptuneCrypto.HeaderSize)
 	header[0] = neptuneCrypto.Version
 	copy(header[1:], senderKeyPair.PublicKey[:])
 	copy(header[1+neptuneCurve25519.KeySize:], nonce[:])
 
 	if _, err := writer.Write(header); err != nil {
-		return 0, fmt.Errorf("写入头部失败: %w", err)
+		return 0, fmt.Errorf("failed to write header: %w", err)
 	}
 
-	// 获取缓冲区
+	// get buffer
 	buf := utils.GetGlobalBuffer(bufferSize)
 	defer utils.PutGlobalBuffer(buf)
 	
-	// 确保缓冲区有足够的大小
+	// ensure buffer has sufficient size
 	if cap(buf) < bufferSize {
 		buf = make([]byte, bufferSize)
 	} else {
 		buf = buf[:bufferSize]
 	}
 
-	// 流式加密数据
+	// stream encryption data
 	var processedBytes int64
 	headerSize := int64(neptuneCrypto.HeaderSize)
 
-	// 初始进度
+	// initial progress
 	progress := float64(0)
 	if totalSize > 0 && totalSize > headerSize {
 		progress = float64(headerSize) / float64(totalSize) * 100
 	}
-	fmt.Printf("\r加密进度: %.1f%%", progress)
+	fmt.Printf("\rEncryption progress: %.1f%%", progress)
 
 	for {
 		n, err := plaintext.Read(buf)
 		if n > 0 {
-			// 加密数据块
+			// encrypt data chunk
 			encryptedChunk := make([]byte, n)
 			cipher.XORKeyStream(encryptedChunk, buf[:n])
 
-			// 写入加密数据
+			// write encrypted data
 			nw, ew := writer.Write(encryptedChunk)
 			if ew != nil {
-				return processedBytes, fmt.Errorf("写入加密数据失败: %w", ew)
+				return processedBytes, fmt.Errorf("write encrypted data failed: %w", ew)
 			}
 			if nw != n {
-				return processedBytes, fmt.Errorf("写入不完整")
+				return processedBytes, fmt.Errorf("incomplete write")
 			}
 
 			processedBytes += int64(n)
 
-			// 更新进度（每 1% 更新一次）
+			// update progress (every 1%)
 			if totalSize > 0 {
 				currentProgress := float64(processedBytes) / float64(totalSize) * 100
 				if currentProgress > 100 {
 					currentProgress = 100
 				}
 				if int(currentProgress) != int(progress) {
-					fmt.Printf("\r加密进度: %.1f%%", currentProgress)
+					fmt.Printf("\rEncryption progress: %.1f%%", currentProgress)
 					progress = currentProgress
 				}
 			}
@@ -405,12 +435,30 @@ func encryptStreamWithProgress(plaintext io.Reader, writer io.Writer, senderKeyP
 			break
 		}
 		if err != nil {
-			return processedBytes, fmt.Errorf("读取明文数据失败: %w", err)
+			return processedBytes, fmt.Errorf("failed to read plaintext data: %w", err)
 		}
 	}
 
-	// 显示最终进度
-	fmt.Printf("\r加密进度: 100.0%%\n")
+	// display final progress
+	fmt.Printf("\rEncryption progress: 100.0%%\n")
+
+	// ========== Memory cleanup: clear sensitive data ==========
+	utils.PrintInfo("[Memory] Clearing encryption key...")
+	utils.SecureZeroMemory(sharedSecret[:])
+	utils.SecureZeroMemory(encryptionKey)
+	utils.PrintSuccess("[Memory] Encryption key cleared from memory")
+
+	utils.PrintInfo("[Memory] Clearing nonce...")
+	utils.SecureZeroMemory(nonce[:])
+	utils.PrintSuccess("[Memory] Nonce cleared from memory")
+
+	utils.PrintInfo("[Memory] Clearing context data...")
+	utils.SecureZeroMemory(context)
+	utils.PrintSuccess("[Memory] Context data cleared from memory")
+
+	utils.PrintInfo("[Memory] Clearing sender public key reference...")
+	utils.SecureZeroMemory(senderKeyPair.PublicKey[:])
+	utils.PrintSuccess("[Memory] Sender public key reference cleared")
 
 	return processedBytes, nil
 }
@@ -435,15 +483,20 @@ func encryptDataToFile(data []byte, outputFile string, senderKeyPair *neptuneCur
 		return utils.NewFileWriteError(outputFile, err)
 	}
 
-	utils.PrintSuccess("数据加密成功!")
-	utils.PrintInfo("输入: 远程数据 (%s)", utils.FormatFileSize(int64(len(data))))
-	utils.PrintInfo("输出: %s (%s)", outputFile, utils.FormatFileSize(int64(len(ciphertext))))
-	utils.PrintWarning("请妥善保管加密文件和密钥")
+	utils.PrintSuccess("Data encryption successful!")
+	utils.PrintInfo("Input: remote data (%s)", utils.FormatFileSize(int64(len(data))))
+	utils.PrintInfo("Output: %s (%s)", outputFile, utils.FormatFileSize(int64(len(ciphertext))))
+	utils.PrintWarning("Keep encrypted files and keys secure")
+
+	// ========== Memory cleanup: clear plaintext data ==========
+	utils.PrintInfo("[Memory] Clearing plaintext data...")
+	utils.SecureZeroMemory(data)
+	utils.PrintSuccess("[Memory] Plaintext data cleared from memory")
 
 	return nil
 }
 
-// fileProgress 用于跟踪单个文件的加密进度
+// fileProgress tracks encryption progress for a single file
 type fileProgress struct {
 	fileName       string
 	processedBytes int64
@@ -451,14 +504,14 @@ type fileProgress struct {
 	mu             sync.Mutex
 }
 
-// updateProgress 更新文件进度
+// updateProgress update file progress
 func (p *fileProgress) updateProgress(processed int64) {
 	p.mu.Lock()
 	p.processedBytes = processed
 	p.mu.Unlock()
 }
 
-// getProgress 获取当前进度
+// getProgress get current progress
 func (p *fileProgress) getProgress() (string, int64, int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -468,14 +521,14 @@ func (p *fileProgress) getProgress() (string, int64, int64) {
 	return fileName, progress, total
 }
 
-// progressReader 包装 io.Reader，跟踪已读取的字节数
+// progressReader wraps io.Reader to track bytes read
 type progressReader struct {
 	reader   io.Reader
 	progress *fileProgress
 	readBytes int64
 }
 
-// Read 实现 io.Reader 接口，同时跟踪读取进度
+// Read implements io.Reader interface while tracking read progress
 func (pr *progressReader) Read(p []byte) (n int, err error) {
 	n, err = pr.reader.Read(p)
 	pr.readBytes += int64(n)
@@ -484,23 +537,23 @@ func (pr *progressReader) Read(p []byte) (n int, err error) {
 }
 
 func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
-	// 解析缓冲区大小
+	// parsing buffer size
 	chunkSize, err := utils.ParseChunkSize(encryptChunkSize)
 	if err != nil {
 		return err
 	}
 
-	// 验证缓冲区大小
+	// validating buffer size
 	if err := utils.ValidateChunkSize(chunkSize); err != nil {
 		return err
 	}
 
-	// 验证并行数
+	// validate parallel processes count
 	if encryptParallel < 1 {
-		return utils.NewInvalidParameterError("parallel", fmt.Sprintf("%d", encryptParallel), "必须大于 0")
+		return utils.NewInvalidParameterError("parallel", fmt.Sprintf("%d", encryptParallel), "must be greater than 0")
 	}
 	if encryptParallel > 10 {
-		return utils.NewInvalidParameterError("parallel", fmt.Sprintf("%d", encryptParallel), "不能超过 10")
+		return utils.NewInvalidParameterError("parallel", fmt.Sprintf("%d", encryptParallel), "cannot exceed 10")
 	}
 
 	// Find all files to encrypt
@@ -510,7 +563,7 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 	}
 
 	if len(files) == 0 {
-		return utils.NewInvalidInputError("input", "目录中没有找到匹配的文件")
+		return utils.NewInvalidInputError("input", "no matching files found in directory")
 	}
 
 	// Create output directory if it doesn't exist
@@ -518,25 +571,34 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 		return err
 	}
 
-	utils.PrintInfo("找到 %d 个文件需要加密", len(files))
-	utils.PrintInfo("并行处理数: %d", encryptParallel)
-	utils.PrintInfo("缓冲区大小: %s", utils.FormatChunkSize(chunkSize))
+	utils.PrintInfo("Found %d files to encrypt", len(files))
+	utils.PrintInfo("number of parallel processes: %d", encryptParallel)
+	utils.PrintInfo("Buffer size: %s", utils.FormatChunkSize(chunkSize))
 
-	// 用于跟踪每个文件的进度
+	// tracks progress of each file
 	type fileInfo struct {
 		relPath    string
 		outputPath string
 		fileSize   int64
 		progress   *fileProgress
 	}
-	
-	// 预计算所有文件的信息和总大小
+
+	// precompute file information and total size
 	fileInfos := make([]fileInfo, 0, len(files))
 	var totalSize int64
+	createdDirs := make(map[string]bool)
 	for _, filePath := range files {
 		relPath, _ := utils.GetRelativePathFromBase(inputDir, filePath)
 		fileSize, _ := utils.GetFileSize(filePath)
 		outputPath := filepath.Join(outputDir, relPath+".ntp")
+		// Ensure parent directory of output file exists
+		parentDir := filepath.Dir(outputPath)
+		if !createdDirs[parentDir] {
+			if err := utils.EnsureDirectory(parentDir); err != nil {
+				return err
+			}
+			createdDirs[parentDir] = true
+		}
 		totalSize += fileSize
 		fileInfos = append(fileInfos, fileInfo{
 			relPath:    relPath,
@@ -549,46 +611,46 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 		})
 	}
 
-	// 创建 semaphore 控制并发数
+	// create semaphore to control concurrency
 	sem := make(chan struct{}, encryptParallel)
 
-	// 用于统计结果
+	// used to collect results
 	var successCount, failedCount, skippedCount int32
-	var mu sync.Mutex // 保护计数器
+	var mu sync.Mutex // protect counters
 
-	// 进度显示
+	// progress display
 	var completedFiles int32
 	totalFiles := len(files)
 
-	// 创建 WaitGroup 等待所有 goroutine 完成
+	// create WaitGroup to wait for all goroutines
 	var wg sync.WaitGroup
 
-	// 创建错误收集器
+	// create error collector
 	var errors []error
 	errorMu := sync.Mutex{}
 	
-	// 处理每个文件
+	// process each file
 	for i, filePath := range files {
 		wg.Add(1)
 
 		go func(filePath string, idx int) {
 			defer wg.Done()
 
-			// 获取 semaphore（控制并发数）
+			// acquire semaphore (control concurrency)
 			sem <- struct{}{}
-			defer func() { <-sem }() // 释放 semaphore
+			defer func() { <-sem }() // release semaphore
 
 			info := &fileInfos[idx]
 
-			// 更新整体进度
+			// update overall progress
 			mu.Lock()
 			completedFiles++
 			mu.Unlock()
 
-			// 启动进度显示 goroutine
+			// start progress display goroutine
 			done := make(chan struct{})
 			go func() {
-				ticker := time.NewTicker(100 * time.Millisecond) // 更频繁更新
+				ticker := time.NewTicker(100 * time.Millisecond) // more frequent updates
 				defer ticker.Stop()
 				for {
 					select {
@@ -600,7 +662,7 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 							currentCount := completedFiles
 							mu.Unlock()
 							overallPercent := float64(currentCount-1) / float64(totalFiles) * 100
-							fmt.Printf("\r[%s] [%.1f%%] | 进度: %d/%d (%.1f%%)", fileName, filePercent, currentCount, totalFiles, overallPercent)
+							fmt.Printf("\r[%s] [%.1f%%] | Progress: %d/%d (%.1f%%)", fileName, filePercent, currentCount, totalFiles, overallPercent)
 						}
 					case <-done:
 						return
@@ -613,7 +675,7 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 			if err != nil {
 				close(done)
 				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("无法检查文件状态: %s", filePath))
+				errors = append(errors, fmt.Errorf("failed to check file status: %s", filePath))
 				errorMu.Unlock()
 				mu.Lock()
 				failedCount++
@@ -623,7 +685,7 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 
 			if isEncrypted {
 				if encryptForceOverride {
-					// 继续加密
+					// continue encryption
 				} else {
 					close(done)
 					mu.Lock()
@@ -633,12 +695,12 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 				}
 			}
 
-			// 打开输入文件
+			// open input file
 			inputReader, err := os.Open(filePath)
 			if err != nil {
 				close(done)
 				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("无法读取文件: %s", filePath))
+				errors = append(errors, fmt.Errorf("failed to read file: %s", filePath))
 				errorMu.Unlock()
 				mu.Lock()
 				failedCount++
@@ -646,19 +708,19 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 				return
 			}
 
-			// 创建包装 reader 来跟踪读取进度
+			// create wrapped reader to track read progress
 			progressReader := &progressReader{
 				reader:   inputReader,
 				progress: info.progress,
 			}
 
-			// 创建输出文件
+			// create output file
 			outputWriter, err := os.Create(info.outputPath)
 			if err != nil {
 				close(done)
 				inputReader.Close()
 				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("无法创建输出文件: %s", info.outputPath))
+				errors = append(errors, fmt.Errorf("failed to create output file: %s", info.outputPath))
 				errorMu.Unlock()
 				mu.Lock()
 				failedCount++
@@ -666,17 +728,17 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 				return
 			}
 
-			// 使用流式加密
+			// use streaming encryption
 			_, err = neptuneCrypto.EncryptStream(progressReader, outputWriter, senderKeyPair, recipientPublicKey, chunkSize)
 			
-			// 关闭文件
+			// close file
 			outputWriter.Close()
 			inputReader.Close()
 			close(done)
 			
 			if err != nil {
 				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("加密失败: %s (%v)", filePath, err))
+				errors = append(errors, fmt.Errorf("encryption failed: %s (%v)", filePath, err))
 				errorMu.Unlock()
 				mu.Lock()
 				failedCount++
@@ -684,14 +746,11 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 				return
 			}
 
-			// Remove source file if requested
-			if encryptRemoveSource {
-				if encryptForce {
-					if err := os.Remove(filePath); err != nil {
-						utils.PrintWarning("删除源文件失败: %s", filePath)
-					} else {
-						utils.PrintSuccess("已删除源文件: %s", filePath)
-					}
+			if encryptRemoveSource || encryptSecureRemoveSource {
+				if err := os.Remove(filePath); err != nil {
+					utils.PrintWarning("Failed to remove source file: %s", filePath)
+				} else {
+					utils.PrintSuccess("Source file removed: %s", filePath)
 				}
 			}
 
@@ -701,34 +760,37 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 		}(filePath, i)
 	}
 
-	// 等待所有 goroutine 完成
+	// wait for all goroutines to complete
 	wg.Wait()
 	
-	// 清除进度显示行
+	// clear progress display line
 	fmt.Print("\r")
 
-	// 显示最终结果
-	utils.PrintInfo("加密完成: %d 成功, %d 失败, %d 跳过(已加密)", successCount, failedCount, skippedCount)
+	// display final result
+	utils.PrintInfo("encryption completed: %d success, %d failed, %d skipped (already encrypted)", successCount, failedCount, skippedCount)
 
-	// 显示错误详情（如果有）
 	if len(errors) > 0 && failedCount > 0 {
-		utils.PrintError("部分文件加密失败:")
+		utils.PrintError("Some files failed to encrypt:")
 		for i, e := range errors {
-			if i < 5 { // 只显示前 5 个错误
+			if i < 5 {
 				fmt.Printf("  - %v\n", e)
 			}
 		}
 		if len(errors) > 5 {
-			fmt.Printf("  ... 还有 %d 个错误\n", len(errors)-5)
+			fmt.Printf("  ... and %d more errors\n", len(errors)-5)
 		}
-		return fmt.Errorf("部分文件加密失败")
+		return fmt.Errorf("partial file encryption failure")
+	}
+
+	if encryptSecureRemoveSource && len(files) > 0 {
+		utils.SecureDeleteFiles(files)
 	}
 
 	return nil
 }
 
 func confirmRemoveFile(filePath string) bool {
-	utils.PrintQuestion("确定要删除源文件 %s 吗? (y/N)", filePath)
+	utils.PrintQuestion("Are you sure you want to remove source file %s? (y/N)", filePath)
 	var response string
 	fmt.Scanln(&response)
 	return response == "y" || response == "Y"
@@ -746,6 +808,7 @@ func init() {
 	encryptCmd.Flags().BoolVarP(&encryptForce, "force", "f", false, "Force overwrite existing output file")
 	encryptCmd.Flags().BoolVar(&encryptForceOverride, "force-override", false, "Force encryption of already encrypted files")
 	encryptCmd.Flags().BoolVarP(&encryptRemoveSource, "remove-source", "r", false, "Remove source file after successful encryption")
+	encryptCmd.Flags().BoolVar(&encryptSecureRemoveSource, "secure-remove-source", false, "Securely remove source file after successful encryption (delete + disable system recovery)")
 	encryptCmd.Flags().BoolVarP(&encryptRecursive, "recursive", "R", false, "Recursively encrypt all files in a directory")
 	encryptCmd.Flags().StringArrayVar(&encryptInclude, "include", []string{}, "Include files matching pattern (e.g., *.pdf)")
 	encryptCmd.Flags().StringArrayVar(&encryptExclude, "exclude", []string{}, "Exclude files matching pattern (e.g., *.tmp)")

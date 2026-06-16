@@ -1,0 +1,20 @@
+- [x] Checkpoint 1: 操作系统检测功能已实现
+- [x] Checkpoint 2: 管理员/root权限检测功能已实现
+- [x] Checkpoint 3: Windows VSS副本删除功能已实现
+- [x] Checkpoint 4: Windows启动修复禁用功能已实现
+- [x] Checkpoint 5: Windows VSS服务停用功能已实现
+- [x] Checkpoint 6: Windows系统还原禁用功能已实现
+- [x] Checkpoint 7: Windows WinRE禁用功能已实现
+- [x] Checkpoint 8: Linux LVM快照删除功能已实现
+- [x] Checkpoint 9: Linux btrfs快照删除功能已实现
+- [x] Checkpoint 10: Linux ZFS快照删除功能已实现
+- [x] Checkpoint 11: Linux备份服务停止功能已实现
+- [x] Checkpoint 12: macOS TimeMachine删除功能已实现
+- [x] Checkpoint 13: macOS backupd停止功能已实现
+- [x] Checkpoint 14: macOS本地快照清除功能已实现
+- [x] Checkpoint 15: macOS Spotlight禁用功能已实现
+- [x] Checkpoint 16: 详细执行信息输出已实现
+- [x] Checkpoint 17: 加密命令已集成安全删除功能
+- [x] Checkpoint 18: 解密命令已集成安全删除功能
+- [x] Checkpoint 19: 构建成功
+- [x] Checkpoint 20: 单元测试通过

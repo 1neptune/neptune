@@ -29,7 +29,7 @@ func Execute() {
 			fmt.Fprintln(os.Stderr, ne.FullError())
 		} else {
 			// Print standard error
-			fmt.Fprintln(os.Stderr, fmt.Sprintf("错误: %v", err))
+			fmt.Fprintln(os.Stderr, fmt.Sprintf(": %v", err))
 		}
 		os.Exit(1)
 	}

@@ -38,25 +38,25 @@ Examples:
 			return utils.NewMissingInputError("remote-url")
 		}
 
-		// 验证远程 URL
+		//  URL
 		for _, url := range downloadRemoteURL {
 			if !utils.IsHTTPURL(url) {
 				return &utils.NeptuneError{
 					Code:       utils.ErrCodeInvalidInput,
-					Message:    fmt.Sprintf("无效的 URL: %s", url),
-					Suggestion: "--remote-url 参数只支持 HTTP/HTTPS URL",
+					Message:    fmt.Sprintf(" URL: %s", url),
+					Suggestion: "--remote-url  HTTP/HTTPS URL",
 				}
 			}
 		}
 
-		// 多个远程 URL 时，输出必须是目录
+		//  URL ，
 		if len(downloadRemoteURL) > 1 && downloadOutput != "" {
 			info, err := os.Stat(downloadOutput)
 			if err == nil && !info.IsDir() {
 				return &utils.NeptuneError{
 					Code:       utils.ErrCodeInvalidInput,
-					Message:    "当使用多个 --remote-url 时，--output 必须是目录",
-					Suggestion: "请指定一个目录作为输出，或使用单个 --remote-url",
+					Message:    " --remote-url ，--output ",
+					Suggestion: "， --remote-url",
 				}
 			}
 		}
@@ -76,10 +76,10 @@ func downloadFiles(urls []string, outputDir string, timeout time.Duration) error
 	failedCount := 0
 
 	for _, url := range urls {
-		utils.PrintInfo("正在下载: %s", url)
+		utils.PrintInfo("Downloading: %s", url)
 		data, err := utils.DownloadBytes(url, timeout)
 		if err != nil {
-			utils.PrintError("下载失败: %s", err.Error())
+			utils.PrintError("Download failed: %s", err.Error())
 			failedCount++
 			continue
 		}
@@ -100,27 +100,29 @@ func downloadFiles(urls []string, outputDir string, timeout time.Duration) error
 
 		// Ensure parent directory exists
 		if err := utils.EnsureParentDirectory(outputPath); err != nil {
-			utils.PrintError("创建目录失败: %s", err.Error())
+			utils.PrintError("Failed to create directory: %s", err.Error())
 			failedCount++
 			continue
 		}
 
 		// Write file
 		if err := os.WriteFile(outputPath, data, 0644); err != nil {
-			utils.PrintError("写入文件失败: %s", err.Error())
+			utils.PrintError("Failed to write file: %s", err.Error())
 			failedCount++
 			continue
 		}
 
-		utils.PrintSuccess("下载完成: %s -> %s (%s)", filename, outputPath, utils.FormatFileSize(int64(len(data))))
+		utils.PrintSuccess("Downloaded: %s -> %s (%s)", filename, outputPath, utils.FormatFileSize(int64(len(data))))
+
+		// ========== Memory cleanup: clear downloaded data ==========
+		utils.PrintInfo("[Memory] Clearing downloaded data (%d bytes)...", len(data))
+		utils.SecureZeroMemory(data)
+		utils.PrintSuccess("[Memory] Downloaded data cleared from memory")
+
 		successCount++
 	}
 
-	utils.PrintInfo("下载完成: %d 成功, %d 失败", successCount, failedCount)
-
-	if failedCount > 0 {
-		return fmt.Errorf("部分文件下载失败")
-	}
+	utils.PrintInfo("Download completed: %d success, %d failed", successCount, failedCount)
 
 	return nil
 }

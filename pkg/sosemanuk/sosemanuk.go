@@ -287,21 +287,21 @@ func (s *Sosemanuk) NextBytes(dst []byte) {
 }
 
 // XORKeyStream XORs the keystream with the input and writes to dst
-// 优化版本：批量处理 16 字节，减少函数调用开销
+// ： 16 ，
 func (s *Sosemanuk) XORKeyStream(dst, src []byte) {
 	if len(dst) < len(src) {
 		return
 	}
 
-	// 主循环：批量处理 16 字节块（一次生成 4 个 uint32）
+	// ： 16 （ 4  uint32）
 	i := 0
 	for i+16 <= len(src) {
-		// 确保 out 缓冲区有数据
+		//  out 
 		if s.pos >= 4 {
 			s.generateOutput()
 		}
 
-		// 一次处理 4 个 uint32（16 字节），减少函数调用
+		//  4  uint32（16 ），
 		srcWord0 := binary.LittleEndian.Uint32(src[i:])
 		srcWord1 := binary.LittleEndian.Uint32(src[i+4:])
 		srcWord2 := binary.LittleEndian.Uint32(src[i+8:])
@@ -316,7 +316,7 @@ func (s *Sosemanuk) XORKeyStream(dst, src []byte) {
 		i += 16
 	}
 
-	// 处理剩余的 4 字节块
+	//  4 
 	for i+4 <= len(src) {
 		if s.pos >= 4 {
 			s.generateOutput()
@@ -327,7 +327,7 @@ func (s *Sosemanuk) XORKeyStream(dst, src []byte) {
 		i += 4
 	}
 
-	// 处理最后不足 4 字节的部分
+	//  4 
 	if i < len(src) {
 		if s.pos >= 4 {
 			s.generateOutput()

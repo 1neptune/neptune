@@ -33,12 +33,12 @@ func (e *NeptuneError) Unwrap() error {
 func (e *NeptuneError) FullError() string {
 	var result string
 	if e.Cause != nil {
-		result = fmt.Sprintf("错误: %s\n原因: %v", e.Message, e.Cause)
+		result = fmt.Sprintf(": %s\n: %v", e.Message, e.Cause)
 	} else {
-		result = fmt.Sprintf("错误: %s", e.Message)
+		result = fmt.Sprintf(": %s", e.Message)
 	}
 	if e.Suggestion != "" {
-		result += fmt.Sprintf("\n建议: %s", e.Suggestion)
+		result += fmt.Sprintf("\n: %s", e.Suggestion)
 	}
 	return result
 }
@@ -83,9 +83,9 @@ const (
 func NewFileNotFoundError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFileNotFound,
-		Message: fmt.Sprintf("文件不存在: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查文件路径是否正确，确保文件存在",
+		Suggestion: "，",
 	}
 }
 
@@ -93,9 +93,9 @@ func NewFileNotFoundError(path string, cause error) *NeptuneError {
 func NewFileReadError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFileReadFailed,
-		Message: fmt.Sprintf("无法读取文件: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查文件权限，确保有读取权限",
+		Suggestion: "，",
 	}
 }
 
@@ -103,9 +103,9 @@ func NewFileReadError(path string, cause error) *NeptuneError {
 func NewFileWriteError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFileWriteFailed,
-		Message: fmt.Sprintf("无法写入文件: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查文件权限和磁盘空间，确保有写入权限",
+		Suggestion: "，",
 	}
 }
 
@@ -113,9 +113,9 @@ func NewFileWriteError(path string, cause error) *NeptuneError {
 func NewFileCreateError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFileCreateFailed,
-		Message: fmt.Sprintf("无法创建文件: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查目录权限和磁盘空间",
+		Suggestion: "",
 	}
 }
 
@@ -123,9 +123,9 @@ func NewFileCreateError(path string, cause error) *NeptuneError {
 func NewFilePermissionError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFilePermission,
-		Message: fmt.Sprintf("文件权限不足: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请以管理员权限运行或检查文件权限设置",
+		Suggestion: "",
 	}
 }
 
@@ -133,8 +133,8 @@ func NewFilePermissionError(path string, cause error) *NeptuneError {
 func NewFileTooLargeError(path string, size, maxSize int64) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFileTooLarge,
-		Message: fmt.Sprintf("文件过大: %s (大小: %d 字节, 最大允许: %d 字节)", path, size, maxSize),
-		Suggestion: "请使用分块加密或选择较小的文件",
+		Message: fmt.Sprintf(": %s (: %d , : %d )", path, size, maxSize),
+		Suggestion: "",
 	}
 }
 
@@ -142,8 +142,8 @@ func NewFileTooLargeError(path string, size, maxSize int64) *NeptuneError {
 func NewFileEmptyError(path string) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFileEmpty,
-		Message: fmt.Sprintf("文件为空: %s", path),
-		Suggestion: "请确保文件包含有效内容",
+		Message: fmt.Sprintf(": %s", path),
+		Suggestion: "",
 	}
 }
 
@@ -151,9 +151,9 @@ func NewFileEmptyError(path string) *NeptuneError {
 func NewFileDeleteError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeFileWriteFailed,
-		Message: fmt.Sprintf("无法删除文件: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查文件权限，确保有删除权限",
+		Suggestion: "，",
 	}
 }
 
@@ -161,9 +161,9 @@ func NewFileDeleteError(path string, cause error) *NeptuneError {
 func NewInvalidPathError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeInvalidPath,
-		Message: fmt.Sprintf("无效的文件路径: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查路径格式是否正确",
+		Suggestion: "",
 	}
 }
 
@@ -171,9 +171,9 @@ func NewInvalidPathError(path string, cause error) *NeptuneError {
 func NewKeyNotFoundError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeKeyNotFound,
-		Message: fmt.Sprintf("密钥文件不存在: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请使用 'neptune keygen' 命令生成密钥对",
+		Suggestion: " 'neptune keygen' ",
 	}
 }
 
@@ -181,9 +181,9 @@ func NewKeyNotFoundError(path string, cause error) *NeptuneError {
 func NewKeyReadError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeKeyReadFailed,
-		Message: fmt.Sprintf("无法读取密钥文件: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查文件权限和文件格式",
+		Suggestion: "",
 	}
 }
 
@@ -191,9 +191,9 @@ func NewKeyReadError(path string, cause error) *NeptuneError {
 func NewKeyWriteError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeKeyWriteFailed,
-		Message: fmt.Sprintf("无法写入密钥文件: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请检查目录权限和磁盘空间",
+		Suggestion: "",
 	}
 }
 
@@ -201,9 +201,9 @@ func NewKeyWriteError(path string, cause error) *NeptuneError {
 func NewKeyInvalidFormatError(path, encoding string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeKeyInvalidFormat,
-		Message: fmt.Sprintf("密钥格式无效: %s (编码: %s)", path, encoding),
+		Message: fmt.Sprintf(": %s (: %s)", path, encoding),
 		Cause:  cause,
-		Suggestion: fmt.Sprintf("请确保密钥文件使用正确的编码格式 (%s)", encoding),
+		Suggestion: fmt.Sprintf(" (%s)", encoding),
 	}
 }
 
@@ -211,8 +211,8 @@ func NewKeyInvalidFormatError(path, encoding string, cause error) *NeptuneError 
 func NewKeyInvalidSizeError(expectedSize, actualSize int) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeKeyInvalidSize,
-		Message: fmt.Sprintf("密钥大小无效: 期望 %d 字节, 实际 %d 字节", expectedSize, actualSize),
-		Suggestion: "请确保密钥文件未被损坏或修改",
+		Message: fmt.Sprintf(":  %d ,  %d ", expectedSize, actualSize),
+		Suggestion: "",
 	}
 }
 
@@ -220,9 +220,9 @@ func NewKeyInvalidSizeError(expectedSize, actualSize int) *NeptuneError {
 func NewKeyCorruptedError(path string, cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeKeyCorrupted,
-		Message: fmt.Sprintf("密钥文件已损坏: %s", path),
+		Message: fmt.Sprintf(": %s", path),
 		Cause:  cause,
-		Suggestion: "请重新生成密钥对或从备份恢复",
+		Suggestion: "",
 	}
 }
 
@@ -230,8 +230,8 @@ func NewKeyCorruptedError(path string, cause error) *NeptuneError {
 func NewKeyMismatchError() *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeKeyMismatch,
-		Message: "私钥与公钥不匹配",
-		Suggestion: "请确保使用正确的密钥对进行解密",
+		Message: "",
+		Suggestion: "",
 	}
 }
 
@@ -239,9 +239,9 @@ func NewKeyMismatchError() *NeptuneError {
 func NewEncryptError(cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeEncryptFailed,
-		Message: "加密失败",
+		Message: "",
 		Cause:  cause,
-		Suggestion: "请检查密钥是否正确，数据是否有效",
+		Suggestion: "，",
 	}
 }
 
@@ -249,9 +249,9 @@ func NewEncryptError(cause error) *NeptuneError {
 func NewDecryptError(cause error) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeDecryptFailed,
-		Message: "解密失败",
+		Message: "",
 		Cause:  cause,
-		Suggestion: "请确保使用正确的私钥，且数据未被篡改",
+		Suggestion: "，",
 	}
 }
 
@@ -259,8 +259,8 @@ func NewDecryptError(cause error) *NeptuneError {
 func NewInvalidVersionError(version byte) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeInvalidVersion,
-		Message: fmt.Sprintf("不支持的数据版本: %d", version),
-		Suggestion: "请确保使用最新版本的 Neptune 工具",
+		Message: fmt.Sprintf(": %d", version),
+		Suggestion: " Neptune ",
 	}
 }
 
@@ -268,8 +268,8 @@ func NewInvalidVersionError(version byte) *NeptuneError {
 func NewInvalidCiphertextError(reason string) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeInvalidCiphertext,
-		Message: fmt.Sprintf("无效的密文数据: %s", reason),
-		Suggestion: "请确保数据未被损坏或篡改",
+		Message: fmt.Sprintf(": %s", reason),
+		Suggestion: "",
 	}
 }
 
@@ -277,8 +277,8 @@ func NewInvalidCiphertextError(reason string) *NeptuneError {
 func NewInvalidInputError(param, reason string) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeInvalidInput,
-		Message: fmt.Sprintf("无效的输入参数 '%s': %s", param, reason),
-		Suggestion: "请检查输入参数是否正确",
+		Message: fmt.Sprintf(" '%s': %s", param, reason),
+		Suggestion: "",
 	}
 }
 
@@ -286,8 +286,8 @@ func NewInvalidInputError(param, reason string) *NeptuneError {
 func NewMissingInputError(param string) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeMissingInput,
-		Message: fmt.Sprintf("缺少必需的参数: %s", param),
-		Suggestion: fmt.Sprintf("请使用 --%s 参数指定", param),
+		Message: fmt.Sprintf(": %s", param),
+		Suggestion: fmt.Sprintf(" --%s ", param),
 	}
 }
 
@@ -295,8 +295,8 @@ func NewMissingInputError(param string) *NeptuneError {
 func NewInvalidEncodingError(encoding string, supported []string) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeInvalidEncoding,
-		Message: fmt.Sprintf("不支持的编码格式: %s", encoding),
-		Suggestion: fmt.Sprintf("支持的编码格式: %v", supported),
+		Message: fmt.Sprintf(": %s", encoding),
+		Suggestion: fmt.Sprintf(": %v", supported),
 	}
 }
 
@@ -304,8 +304,8 @@ func NewInvalidEncodingError(encoding string, supported []string) *NeptuneError 
 func NewInvalidParameterError(param, value, reason string) *NeptuneError {
 	return &NeptuneError{
 		Code:   ErrCodeInvalidParameter,
-		Message: fmt.Sprintf("参数 '%s' 的值 '%s' 无效: %s", param, value, reason),
-		Suggestion: "请检查参数值是否符合要求",
+		Message: fmt.Sprintf(" '%s'  '%s' : %s", param, value, reason),
+		Suggestion: "",
 	}
 }
 
@@ -338,8 +338,8 @@ func WrapError(err error, code, message, suggestion string) *NeptuneError {
 func NewDecryptKeyMismatchError() *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeKeyMismatch,
-		Message:    "密钥不匹配：无法使用提供的私钥解密数据",
-		Suggestion: "请确保使用正确的私钥，该私钥应与加密时使用的公钥配对",
+		Message:    "：",
+		Suggestion: "，",
 	}
 }
 
@@ -347,8 +347,8 @@ func NewDecryptKeyMismatchError() *NeptuneError {
 func NewHashMismatchError(expected, actual string) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidCiphertext,
-		Message:    fmt.Sprintf("数据完整性校验失败: 期望哈希 %s, 实际哈希 %s", expected, actual),
-		Suggestion: "数据可能已被篡改或损坏",
+		Message:    fmt.Sprintf(":  %s,  %s", expected, actual),
+		Suggestion: "",
 	}
 }
 
@@ -356,8 +356,8 @@ func NewHashMismatchError(expected, actual string) *NeptuneError {
 func NewNotEnoughMemoryError(size int64) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidParameter,
-		Message:    fmt.Sprintf("内存不足：无法处理大小为 %d 字节的数据", size),
-		Suggestion: "请尝试处理较小的文件或增加系统可用内存",
+		Message:    fmt.Sprintf("： %d ", size),
+		Suggestion: "",
 	}
 }
 
@@ -365,8 +365,8 @@ func NewNotEnoughMemoryError(size int64) *NeptuneError {
 func NewInvalidStateError(message string) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidParameter,
-		Message:    fmt.Sprintf("无效状态: %s", message),
-		Suggestion: "请检查操作顺序或系统状态",
+		Message:    fmt.Sprintf(": %s", message),
+		Suggestion: "",
 	}
 }
 
@@ -374,8 +374,8 @@ func NewInvalidStateError(message string) *NeptuneError {
 func NewOperationNotSupportedError(operation string) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidParameter,
-		Message:    fmt.Sprintf("不支持的操作: %s", operation),
-		Suggestion: "请使用其他方法或升级到最新版本",
+		Message:    fmt.Sprintf(": %s", operation),
+		Suggestion: "",
 	}
 }
 
@@ -383,9 +383,9 @@ func NewOperationNotSupportedError(operation string) *NeptuneError {
 func NewConversionError(from, to string, err error) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidParameter,
-		Message:    fmt.Sprintf("转换失败: %s -> %s", from, to),
+		Message:    fmt.Sprintf(": %s -> %s", from, to),
 		Cause:      err,
-		Suggestion: "请确保数据格式正确",
+		Suggestion: "",
 	}
 }
 
@@ -393,9 +393,9 @@ func NewConversionError(from, to string, err error) *NeptuneError {
 func NewDependencyError(dep string, err error) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidParameter,
-		Message:    fmt.Sprintf("依赖组件错误: %s", dep),
+		Message:    fmt.Sprintf(": %s", dep),
 		Cause:      err,
-		Suggestion: "请检查依赖是否正确安装或配置",
+		Suggestion: "",
 	}
 }
 
@@ -403,8 +403,8 @@ func NewDependencyError(dep string, err error) *NeptuneError {
 func NewTimeoutError(operation string) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidParameter,
-		Message:    fmt.Sprintf("操作超时: %s", operation),
-		Suggestion: "请重试操作或增加超时时间",
+		Message:    fmt.Sprintf(": %s", operation),
+		Suggestion: "",
 	}
 }
 
@@ -412,8 +412,8 @@ func NewTimeoutError(operation string) *NeptuneError {
 func NewResourceExhaustedError(resource string) *NeptuneError {
 	return &NeptuneError{
 		Code:       ErrCodeInvalidParameter,
-		Message:    fmt.Sprintf("资源耗尽: %s", resource),
-		Suggestion: "请释放资源后重试",
+		Message:    fmt.Sprintf(": %s", resource),
+		Suggestion: "",
 	}
 }
 
@@ -421,24 +421,24 @@ func NewResourceExhaustedError(resource string) *NeptuneError {
 func (e *NeptuneError) PrintErrorWithCode() {
 	fmt.Printf("\n✗ [%s] %s\n", e.Code, e.Message)
 	if e.Cause != nil {
-		fmt.Printf("  原因: %v\n", e.Cause)
+		fmt.Printf("  : %v\n", e.Cause)
 	}
 	if e.Suggestion != "" {
-		fmt.Printf("  建议: %s\n", e.Suggestion)
+		fmt.Printf("  : %s\n", e.Suggestion)
 	}
 }
 
 // PrintDetailed prints a detailed error report
 func (e *NeptuneError) PrintDetailed() {
 	fmt.Println("\n═══════════════════════════════════════════════════════════════")
-	fmt.Printf("错误代码: %s\n", e.Code)
-	fmt.Printf("错误消息: %s\n", e.Message)
+	fmt.Printf(": %s\n", e.Code)
+	fmt.Printf(": %s\n", e.Message)
 	if e.Cause != nil {
-		fmt.Printf("底层原因: %v\n", e.Cause)
+		fmt.Printf(": %v\n", e.Cause)
 	}
 	if e.Suggestion != "" {
 		fmt.Println("───────────────────────────────────────────────────────────────")
-		fmt.Printf("解决方案: %s\n", e.Suggestion)
+		fmt.Printf(": %s\n", e.Suggestion)
 	}
 	fmt.Println("═══════════════════════════════════════════════════════════════")
 }
@@ -490,7 +490,7 @@ func AggregateErrors(errs []error) error {
 
 	return &NeptuneError{
 		Code:    ErrCodeInvalidInput,
-		Message: fmt.Sprintf("发现多个错误:\n%s", strings.Join(messages, "\n")),
+		Message: fmt.Sprintf(":\n%s", strings.Join(messages, "\n")),
 	}
 }
 
@@ -503,7 +503,7 @@ func HandleError(err error) {
 	if ne := GetNeptuneError(err); ne != nil {
 		ne.PrintDetailed()
 	} else {
-		fmt.Fprintf(os.Stderr, "\n✗ 未知错误: %v\n", err)
+		fmt.Fprintf(os.Stderr, "\n✗ : %v\n", err)
 	}
 }
 

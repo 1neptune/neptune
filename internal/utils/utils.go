@@ -86,7 +86,7 @@ func FileExists(path string) error {
 	}
 
 	if info.IsDir() {
-		return NewInvalidPathError(path, fmt.Errorf("路径是目录而非文件"))
+		return NewInvalidPathError(path, fmt.Errorf("path is a directory"))
 	}
 
 	return nil
@@ -109,7 +109,7 @@ func ValidateFileForRead(path string) error {
 		return NewFileEmptyError(path)
 	}
 
-	// 文件大小限制已移除，因为流式加密可以处理任意大小的文件
+	// File size limit removed as streaming encryption can handle files of any size
 	// if info.Size() > MaxFileSize {
 	// 	return NewFileTooLargeError(path, info.Size(), MaxFileSize)
 	// }
@@ -132,12 +132,12 @@ func ValidateFileForWrite(path string, overwrite bool) error {
 		if !overwrite {
 			return &NeptuneError{
 				Code:       ErrCodeFileWriteFailed,
-				Message:    fmt.Sprintf("文件已存在: %s", path),
-				Suggestion: "使用 --force 参数覆盖现有文件，或指定不同的输出路径",
+				Message:    fmt.Sprintf("file already exists: %s", path),
+				Suggestion: "use --force flag to overwrite or specify a different output path",
 			}
 		}
 		if info.IsDir() {
-			return NewInvalidPathError(path, fmt.Errorf("路径是目录而非文件"))
+			return NewInvalidPathError(path, fmt.Errorf("path is a directory"))
 		}
 	}
 
@@ -148,15 +148,15 @@ func ValidateFileForWrite(path string, overwrite bool) error {
 		if os.IsNotExist(err) {
 			return &NeptuneError{
 				Code:       ErrCodeFileWriteFailed,
-				Message:    fmt.Sprintf("目录不存在: %s", parentDir),
-				Suggestion: "请先创建目录或指定有效的输出路径",
+				Message:    fmt.Sprintf("directory does not exist: %s", parentDir),
+				Suggestion: "create the directory first or specify a valid output path",
 			}
 		}
 		return NewFileWriteError(path, err)
 	}
 
 	if !parentInfo.IsDir() {
-		return NewInvalidPathError(parentDir, fmt.Errorf("父路径不是目录"))
+		return NewInvalidPathError(parentDir, fmt.Errorf("parent path is not a directory"))
 	}
 
 	return nil
@@ -177,19 +177,19 @@ func ValidateKeyFile(path string, encoding EncodingType) error {
 
 	// Check if file is empty
 	if len(content) == 0 {
-		return NewKeyCorruptedError(path, fmt.Errorf("文件为空"))
+		return NewKeyCorruptedError(path, fmt.Errorf("file is empty"))
 	}
 
 	// Parse and validate key content
 	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
 	if len(lines) == 0 {
-		return NewKeyCorruptedError(path, fmt.Errorf("文件格式无效"))
+		return NewKeyCorruptedError(path, fmt.Errorf("invalid file format"))
 	}
 
 	// Validate first line (should be a valid key)
 	keyStr := strings.TrimSpace(lines[0])
 	if keyStr == "" {
-		return NewKeyCorruptedError(path, fmt.Errorf("密钥内容为空"))
+		return NewKeyCorruptedError(path, fmt.Errorf("key content is empty"))
 	}
 
 	// Try to decode the key to validate format
@@ -218,7 +218,7 @@ func DecodeKey(keyStr string, encoding EncodingType) ([]byte, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("解码失败: %w", err)
+		return nil, fmt.Errorf("decoding failed: %w", err)
 	}
 
 	if len(decoded) != KeySize {
@@ -284,7 +284,7 @@ func EnsureDirectory(path string) error {
 	info, err := os.Stat(absPath)
 	if err == nil {
 		if !info.IsDir() {
-			return NewInvalidPathError(path, fmt.Errorf("路径是文件而非目录"))
+			return NewInvalidPathError(path, fmt.Errorf("path is a file, not a directory"))
 		}
 		return nil
 	}
@@ -305,7 +305,7 @@ func ValidateInputParameters(inputFile, text string) error {
 		return NewMissingInputError("input")
 	}
 	if inputFile != "" && text != "" {
-		return NewInvalidInputError("input", "不能同时指定 --input 和 --text")
+		return NewInvalidInputError("input", "cannot specify both --input and --text")
 	}
 	return nil
 }
@@ -361,27 +361,23 @@ func GetFileInfo(path string) (string, error) {
 
 // PrintSuccess prints a success message
 func PrintSuccess(format string, args ...interface{}) {
-	fmt.Printf("\n✓ %s\n", fmt.Sprintf(format, args...))
+	fmt.Printf("[SUCCESS] %s\n", fmt.Sprintf(format, args...))
 }
 
-// PrintError prints an error message
 func PrintError(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, "\n✗ %s\n", fmt.Sprintf(format, args...))
+	fmt.Fprintf(os.Stderr, "[ERROR] %s\n", fmt.Sprintf(format, args...))
 }
 
-// PrintWarning prints a warning message
 func PrintWarning(format string, args ...interface{}) {
-	fmt.Printf("\n⚠ %s\n", fmt.Sprintf(format, args...))
+	fmt.Printf("[WARNING] %s\n", fmt.Sprintf(format, args...))
 }
 
-// PrintInfo prints an info message
 func PrintInfo(format string, args ...interface{}) {
-	fmt.Printf("\nℹ %s\n", fmt.Sprintf(format, args...))
+	fmt.Printf("[INFO] %s\n", fmt.Sprintf(format, args...))
 }
 
-// PrintQuestion prints a question message
 func PrintQuestion(format string, args ...interface{}) {
-	fmt.Printf("\n❓ %s ", fmt.Sprintf(format, args...))
+	fmt.Printf("[QUESTION] %s ", fmt.Sprintf(format, args...))
 }
 
 // CopyFile copies a file from src to dst
@@ -428,7 +424,7 @@ func GetFileSize(path string) (int64, error) {
 		return 0, NewFileReadError(path, err)
 	}
 	if info.IsDir() {
-		return 0, NewInvalidPathError(path, fmt.Errorf("路径是目录"))
+		return 0, NewInvalidPathError(path, fmt.Errorf("path is a directory"))
 	}
 	return info.Size(), nil
 }
@@ -528,7 +524,7 @@ func ValidateDirectory(path string, createIfNotExists bool) error {
 	info, err := os.Stat(absPath)
 	if err == nil {
 		if !info.IsDir() {
-			return NewInvalidPathError(path, fmt.Errorf("路径是文件而非目录"))
+			return NewInvalidPathError(path, fmt.Errorf("path is a file, not a directory"))
 		}
 		return nil
 	}
@@ -571,7 +567,7 @@ func GetRelativePath(base, target string) (string, error) {
 // ValidateFilePath validates a file path for existence and readability
 func ValidateFilePath(path string) error {
 	if path == "" {
-		return NewInvalidPathError(path, fmt.Errorf("路径为空"))
+		return NewInvalidPathError(path, fmt.Errorf("path is empty"))
 	}
 
 	absPath, err := filepath.Abs(path)
@@ -591,7 +587,7 @@ func ValidateFilePath(path string) error {
 	}
 
 	if info.IsDir() {
-		return NewInvalidPathError(path, fmt.Errorf("路径是目录而非文件"))
+		return NewInvalidPathError(path, fmt.Errorf("path is a directory"))
 	}
 
 	return nil
@@ -600,7 +596,7 @@ func ValidateFilePath(path string) error {
 // ValidateOutputPath validates an output path
 func ValidateOutputPath(path string, overwrite bool) error {
 	if path == "" {
-		return NewInvalidPathError(path, fmt.Errorf("输出路径为空"))
+		return NewInvalidPathError(path, fmt.Errorf("output path is empty"))
 	}
 
 	absPath, err := filepath.Abs(path)
@@ -611,13 +607,13 @@ func ValidateOutputPath(path string, overwrite bool) error {
 	info, err := os.Stat(absPath)
 	if err == nil {
 		if info.IsDir() {
-			return NewInvalidPathError(path, fmt.Errorf("路径是目录而非文件"))
+			return NewInvalidPathError(path, fmt.Errorf("path is a directory"))
 		}
 		if !overwrite {
 			return &NeptuneError{
 				Code:       ErrCodeFileWriteFailed,
-				Message:    fmt.Sprintf("文件已存在: %s", path),
-				Suggestion: "使用 --force 参数覆盖现有文件，或指定不同的输出路径",
+				Message:    fmt.Sprintf("file already exists: %s", path),
+				Suggestion: "use --force flag to overwrite or specify a different output path",
 			}
 		}
 	}
@@ -628,15 +624,15 @@ func ValidateOutputPath(path string, overwrite bool) error {
 		if os.IsNotExist(err) {
 			return &NeptuneError{
 				Code:       ErrCodeFileWriteFailed,
-				Message:    fmt.Sprintf("父目录不存在: %s", parentDir),
-				Suggestion: "请先创建目录或指定有效的输出路径",
+				Message:    fmt.Sprintf("directory does not exist: %s", parentDir),
+				Suggestion: "create the directory first or specify a valid output path",
 			}
 		}
 		return NewFileWriteError(path, err)
 	}
 
 	if !parentInfo.IsDir() {
-		return NewInvalidPathError(parentDir, fmt.Errorf("父路径不是目录"))
+		return NewInvalidPathError(parentDir, fmt.Errorf("parent path is not a directory"))
 	}
 
 	return nil
@@ -645,7 +641,7 @@ func ValidateOutputPath(path string, overwrite bool) error {
 // ValidateKeyData validates key data (32 bytes for Curve25519)
 func ValidateKeyData(key []byte) error {
 	if len(key) == 0 {
-		return NewKeyCorruptedError("", fmt.Errorf("密钥数据为空"))
+		return NewKeyCorruptedError("", fmt.Errorf("key data is empty"))
 	}
 	if len(key) != KeySize {
 		return NewKeyInvalidSizeError(KeySize, len(key))
@@ -656,14 +652,14 @@ func ValidateKeyData(key []byte) error {
 // ValidateHexString validates a hexadecimal string
 func ValidateHexString(hexStr string) error {
 	if hexStr == "" {
-		return NewInvalidInputError("hex", "字符串为空")
+		return NewInvalidInputError("hex", "string is empty")
 	}
 	if len(hexStr)%2 != 0 {
-		return NewInvalidInputError("hex", "长度必须是偶数")
+		return NewInvalidInputError("hex", "length must be even")
 	}
 	for _, c := range strings.ToLower(hexStr) {
 		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return NewInvalidInputError("hex", fmt.Sprintf("包含无效字符 '%c'", c))
+			return NewInvalidInputError("hex", fmt.Sprintf("contains invalid character '%c'", c))
 		}
 	}
 	return nil
@@ -672,11 +668,11 @@ func ValidateHexString(hexStr string) error {
 // ValidateBase64String validates a base64 string
 func ValidateBase64String(base64Str string) error {
 	if base64Str == "" {
-		return NewInvalidInputError("base64", "字符串为空")
+		return NewInvalidInputError("base64", "string is empty")
 	}
 	_, err := base64.StdEncoding.DecodeString(base64Str)
 	if err != nil {
-		return NewInvalidInputError("base64", fmt.Sprintf("解码失败: %v", err))
+		return NewInvalidInputError("base64", fmt.Sprintf("decoding failed: %v", err))
 	}
 	return nil
 }
@@ -684,11 +680,11 @@ func ValidateBase64String(base64Str string) error {
 // ValidateBase64URLString validates a base64 URL-safe string
 func ValidateBase64URLString(base64URLStr string) error {
 	if base64URLStr == "" {
-		return NewInvalidInputError("base64url", "字符串为空")
+		return NewInvalidInputError("base64url", "string is empty")
 	}
 	_, err := base64.URLEncoding.DecodeString(base64URLStr)
 	if err != nil {
-		return NewInvalidInputError("base64url", fmt.Sprintf("解码失败: %v", err))
+		return NewInvalidInputError("base64url", fmt.Sprintf("decoding failed: %v", err))
 	}
 	return nil
 }
@@ -696,7 +692,7 @@ func ValidateBase64URLString(base64URLStr string) error {
 // ValidateKeyFormat validates a key string based on encoding type
 func ValidateKeyFormat(keyStr string, encoding EncodingType) error {
 	if keyStr == "" {
-		return NewInvalidInputError("key", "密钥字符串为空")
+		return NewInvalidInputError("key", "string is empty")
 	}
 
 	switch encoding {
@@ -714,10 +710,10 @@ func ValidateKeyFormat(keyStr string, encoding EncodingType) error {
 // ValidateEncryptedData validates encrypted data format
 func ValidateEncryptedData(data []byte, minSize int) error {
 	if len(data) == 0 {
-		return NewInvalidCiphertextError("数据为空")
+		return NewInvalidCiphertextError("data is empty")
 	}
 	if len(data) < minSize {
-		return NewInvalidCiphertextError(fmt.Sprintf("数据长度不足，期望至少 %d 字节，实际 %d 字节", minSize, len(data)))
+		return NewInvalidCiphertextError(fmt.Sprintf("data length insufficient, expected at least %d bytes, got %d bytes", minSize, len(data)))
 	}
 	return nil
 }
@@ -785,8 +781,8 @@ func ValidateNotEncrypted(filePath string, forceOverride bool) error {
 		}
 		return &NeptuneError{
 			Code:       ErrCodeFileAlreadyEncrypted,
-			Message:    fmt.Sprintf("文件已加密: %s", filePath),
-			Suggestion: "使用 --force-override 参数强制加密，或检查输入文件",
+			Message:    fmt.Sprintf("file is already encrypted: %s", filePath),
+			Suggestion: "use --force-override flag to force encryption or check the input file",
 		}
 	}
 
@@ -806,10 +802,10 @@ func ValidateVersion(version byte, supportedVersions []byte) error {
 // ValidateNonce validates a nonce (should be 16 bytes for Sosemanuk)
 func ValidateNonce(nonce []byte, expectedSize int) error {
 	if len(nonce) == 0 {
-		return NewInvalidInputError("nonce", "nonce 为空")
+		return NewInvalidInputError("nonce", "nonce is empty")
 	}
 	if len(nonce) != expectedSize {
-		return NewInvalidInputError("nonce", fmt.Sprintf("长度无效，期望 %d 字节，实际 %d 字节", expectedSize, len(nonce)))
+		return NewInvalidInputError("nonce", fmt.Sprintf("invalid length，expected %d bytes，got %d bytes", expectedSize, len(nonce)))
 	}
 	return nil
 }
@@ -825,7 +821,7 @@ func ValidateParameterNotEmpty(paramName, value string) error {
 // ValidateParameterInRange validates that an integer parameter is within a range
 func ValidateParameterInRange(paramName string, value, min, max int) error {
 	if value < min || value > max {
-		return NewInvalidParameterError(paramName, fmt.Sprintf("%d", value), fmt.Sprintf("必须在 %d 到 %d 之间", min, max))
+		return NewInvalidParameterError(paramName, fmt.Sprintf("%d", value), fmt.Sprintf("must be between %d and %d ", min, max))
 	}
 	return nil
 }
@@ -833,7 +829,7 @@ func ValidateParameterInRange(paramName string, value, min, max int) error {
 // ValidateParameterPositive validates that an integer parameter is positive
 func ValidateParameterPositive(paramName string, value int) error {
 	if value <= 0 {
-		return NewInvalidParameterError(paramName, fmt.Sprintf("%d", value), "必须为正数")
+		return NewInvalidParameterError(paramName, fmt.Sprintf("%d", value), "must be positive")
 	}
 	return nil
 }
@@ -841,7 +837,7 @@ func ValidateParameterPositive(paramName string, value int) error {
 // ValidateParameterPositive64 validates that an int64 parameter is positive
 func ValidateParameterPositive64(paramName string, value int64) error {
 	if value <= 0 {
-		return NewInvalidParameterError(paramName, fmt.Sprintf("%d", value), "必须为正数")
+		return NewInvalidParameterError(paramName, fmt.Sprintf("%d", value), "must be positive")
 	}
 	return nil
 }
@@ -849,7 +845,7 @@ func ValidateParameterPositive64(paramName string, value int64) error {
 // ValidateFilePathIsWritable validates that a file path is writable
 func ValidateFilePathIsWritable(path string) error {
 	if path == "" {
-		return NewInvalidPathError(path, fmt.Errorf("路径为空"))
+		return NewInvalidPathError(path, fmt.Errorf("path is empty"))
 	}
 
 	absPath, err := filepath.Abs(path)
@@ -867,7 +863,7 @@ func ValidateFilePathIsWritable(path string) error {
 	}
 
 	if !parentInfo.IsDir() {
-		return NewInvalidPathError(parentDir, fmt.Errorf("父路径不是目录"))
+		return NewInvalidPathError(parentDir, fmt.Errorf("parent path is not a directory"))
 	}
 
 	testFile := filepath.Join(parentDir, ".neptune_test_write.tmp")
@@ -896,7 +892,7 @@ func ValidateKeyPairConsistency(privateKey, publicKey []byte) error {
 // ValidateInputData validates input data for encryption/decryption
 func ValidateInputData(data []byte, operation string) error {
 	if len(data) == 0 {
-		return NewInvalidInputError(operation, "输入数据为空")
+		return NewInvalidInputError(operation, "data is empty")
 	}
 	return nil
 }
@@ -919,15 +915,15 @@ func ValidateAllParameters(params map[string]interface{}) []error {
 			}
 		case int:
 			if v <= 0 {
-				errs = append(errs, NewInvalidParameterError(name, fmt.Sprintf("%d", v), "必须为正数"))
+				errs = append(errs, NewInvalidParameterError(name, fmt.Sprintf("%d", v), "must be positive"))
 			}
 		case int64:
 			if v <= 0 {
-				errs = append(errs, NewInvalidParameterError(name, fmt.Sprintf("%d", v), "必须为正数"))
+				errs = append(errs, NewInvalidParameterError(name, fmt.Sprintf("%d", v), "must be positive"))
 			}
 		case []byte:
 			if len(v) == 0 {
-				errs = append(errs, NewInvalidInputError(name, "数据为空"))
+				errs = append(errs, NewInvalidInputError(name, "data is empty"))
 			}
 		case nil:
 			errs = append(errs, NewMissingInputError(name))
@@ -1012,7 +1008,7 @@ func CopyDirectoryRecursively(src, dst string) error {
 	}
 
 	if !srcInfo.IsDir() {
-		return NewInvalidPathError(src, fmt.Errorf("源路径不是目录"))
+		return NewInvalidPathError(src, fmt.Errorf("source path is not a directory"))
 	}
 
 	if err := EnsureDirectory(dst); err != nil {
@@ -1088,7 +1084,7 @@ func IsHTTPURL(s string) bool {
 // DownloadFile downloads a file from a URL to a local file
 func DownloadFile(urlStr, outputPath string, timeout time.Duration) error {
 	if !IsHTTPURL(urlStr) {
-		return NewInvalidInputError("url", "无效的 HTTP/HTTPS URL")
+		return NewInvalidInputError("url", "invalid HTTP/HTTPS URL")
 	}
 
 	client := &http.Client{
@@ -1110,8 +1106,8 @@ func DownloadFile(urlStr, outputPath string, timeout time.Duration) error {
 	if resp.StatusCode != http.StatusOK {
 		return &NeptuneError{
 			Code:   ErrCodeFileReadFailed,
-			Message: fmt.Sprintf("下载失败: HTTP %d", resp.StatusCode),
-			Suggestion: "请检查 URL 是否正确，确保资源可访问",
+			Message: fmt.Sprintf("download failed: HTTP %d", resp.StatusCode),
+			Suggestion: "check if the URL is correct and ensure the resource is accessible",
 		}
 	}
 
@@ -1137,7 +1133,7 @@ func DownloadFile(urlStr, outputPath string, timeout time.Duration) error {
 // DownloadToTempFile downloads a file from URL to a temporary file and returns the path
 func DownloadToTempFile(urlStr string, timeout time.Duration) (string, error) {
 	if !IsHTTPURL(urlStr) {
-		return "", NewInvalidInputError("url", "无效的 HTTP/HTTPS URL")
+		return "", NewInvalidInputError("url", "invalid HTTP/HTTPS URL")
 	}
 
 	tempFile, err := os.CreateTemp("", "neptune_*.tmp")
@@ -1158,7 +1154,7 @@ func DownloadToTempFile(urlStr string, timeout time.Duration) (string, error) {
 // DownloadBytes downloads data from a URL and returns it as bytes
 func DownloadBytes(urlStr string, timeout time.Duration) ([]byte, error) {
 	if !IsHTTPURL(urlStr) {
-		return nil, NewInvalidInputError("url", "无效的 HTTP/HTTPS URL")
+		return nil, NewInvalidInputError("url", "invalid HTTP/HTTPS URL")
 	}
 
 	client := &http.Client{
@@ -1180,8 +1176,8 @@ func DownloadBytes(urlStr string, timeout time.Duration) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, &NeptuneError{
 			Code:   ErrCodeFileReadFailed,
-			Message: fmt.Sprintf("下载失败: HTTP %d", resp.StatusCode),
-			Suggestion: "请检查 URL 是否正确，确保资源可访问",
+			Message: fmt.Sprintf("download failed: HTTP %d", resp.StatusCode),
+			Suggestion: "check if the URL is correct and ensure the resource is accessible",
 		}
 	}
 
@@ -1202,25 +1198,25 @@ func ExtractFileNameFromURL(urlStr string) string {
 	return filename
 }
 
-// BufferPool 是一个使用 sync.Pool 实现的缓冲区池
-// 用于复用缓冲区，减少内存分配和 GC 压力
+// BufferPool is a buffer pool implemented using sync.Pool
+// used to reuse buffers and reduce memory allocation and GC pressure
 type BufferPool struct {
 	pool sync.Pool
 }
 
-// NewBufferPool 创建一个新的缓冲区池
-// 默认创建大小为 4KB 的缓冲区
+// NewBufferPool creates a new buffer pool
+// creates 4KB buffers by default
 func NewBufferPool() *BufferPool {
 	return &BufferPool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				return make([]byte, 0, 4096) // 默认容量 4KB
+				return make([]byte, 0, 4096) //  4KB
 			},
 		},
 	}
 }
 
-// NewBufferPoolWithSize 创建一个指定默认大小的缓冲区池
+// NewBufferPoolWithSize creates a buffer pool with specified default size
 func NewBufferPoolWithSize(defaultSize int) *BufferPool {
 	return &BufferPool{
 		pool: sync.Pool{
@@ -1231,76 +1227,76 @@ func NewBufferPoolWithSize(defaultSize int) *BufferPool {
 	}
 }
 
-// GetBuffer 从池中获取一个缓冲区
-// 如果池中没有可用的缓冲区，则创建一个新的
-// 返回的缓冲区长度为 0，容量为默认大小或更大
+// GetBuffer retrieves a buffer from the pool
+// creates a new buffer if none are available
+// returned buffer has length 0 and capacity of default size or larger
 func (bp *BufferPool) GetBuffer(size int) []byte {
 	buf := bp.pool.Get().([]byte)
-	// 如果缓冲区容量不足，创建一个新的
+	// 
 	if cap(buf) < size {
 		return make([]byte, 0, size)
 	}
-	// 重置长度为 0
+	// 
 	return buf[:0]
 }
 
-// PutBuffer 将缓冲区放回池中以便复用
-// 注意：不要在使用完缓冲区后继续引用它
+// PutBuffer returns a buffer to the pool for reuse
+// Note: do not continue referencing the buffer after use
 func (bp *BufferPool) PutBuffer(buf []byte) {
 	if buf == nil {
 		return
 	}
-	// 重置缓冲区
+	// 
 	buf = buf[:0]
 	bp.pool.Put(buf)
 }
 
-// GetBufferDefault 获取默认大小的缓冲区
+// GetBufferDefault gets a default-sized buffer
 func (bp *BufferPool) GetBufferDefault() []byte {
 	return bp.GetBuffer(4096)
 }
 
-// 全局缓冲区池实例
+// global buffer pool instance
 var globalBufferPool = NewBufferPool()
 
-// GetGlobalBuffer 从全局缓冲区池获取缓冲区
+// GetGlobalBuffer retrieves a buffer from the global buffer pool
 func GetGlobalBuffer(size int) []byte {
 	return globalBufferPool.GetBuffer(size)
 }
 
-// PutGlobalBuffer 将缓冲区放回全局缓冲区池
+// PutGlobalBuffer returns a buffer to the global buffer pool
 func PutGlobalBuffer(buf []byte) {
 	globalBufferPool.PutBuffer(buf)
 }
 
-// ParseChunkSize 解析缓冲区大小字符串
-// 支持格式: "64KB", "1MB", "4MB", "1GB" 等
-// 不区分大小写
-// 返回字节数
+// ParseChunkSize parses a chunk size string
+// supported formats: "64KB", "1MB", "4MB", "1GB" 
+// case-insensitive
+// returns byte count
 func ParseChunkSize(sizeStr string) (int, error) {
 	if sizeStr == "" {
-		return 0, NewInvalidInputError("size", "大小字符串为空")
+		return 0, NewInvalidInputError("size", "string is empty")
 	}
 
-	// 正则表达式匹配数字和单位
+	// regular expression matches number and unit
 	re := regexp.MustCompile(`^(\d+(?:\.\d+)?)\s*(KB|MB|GB|B)?$`)
 	matches := re.FindStringSubmatch(strings.ToUpper(sizeStr))
 
 	if matches == nil {
-		return 0, NewInvalidInputError("size", fmt.Sprintf("无效的大小格式: %s，支持格式: 64KB, 1MB, 4MB, 1GB", sizeStr))
+		return 0, NewInvalidInputError("size", fmt.Sprintf("invalid size format: %s，supported formats: 64KB, 1MB, 4MB, 1GB", sizeStr))
 	}
 
-	// 解析数值
+	// parse numeric value
 	value, err := strconv.ParseFloat(matches[1], 64)
 	if err != nil {
-		return 0, NewInvalidInputError("size", fmt.Sprintf("无法解析数值: %s", matches[1]))
+		return 0, NewInvalidInputError("size", fmt.Sprintf("cannot parse numeric value: %s", matches[1]))
 	}
 
 	if value < 0 {
-		return 0, NewInvalidInputError("size", "大小不能为负数")
+		return 0, NewInvalidInputError("size", "size cannot be negative")
 	}
 
-	// 根据单位计算字节数
+	// calculate bytes based on unit
 	unit := matches[2]
 	var bytes int64
 
@@ -1314,18 +1310,18 @@ func ParseChunkSize(sizeStr string) (int, error) {
 	case "GB":
 		bytes = int64(value * 1024 * 1024 * 1024)
 	default:
-		return 0, NewInvalidInputError("size", fmt.Sprintf("不支持的单位: %s", unit))
+		return 0, NewInvalidInputError("size", fmt.Sprintf("unsupported unit: %s", unit))
 	}
 
-	// 检查是否溢出
-	if bytes > int64(1<<31-1) { // int 最大值
-		return 0, NewInvalidInputError("size", fmt.Sprintf("大小超出限制: %d 字节", bytes))
+	// check for overflow
+	if bytes > int64(1<<31-1) { // max int value
+		return 0, NewInvalidInputError("size", fmt.Sprintf("size exceeds limit: %d bytes", bytes))
 	}
 
 	return int(bytes), nil
 }
 
-// FormatChunkSize 将字节数格式化为人类可读的字符串
+// FormatChunkSize formats byte count to human-readable string
 func FormatChunkSize(bytes int) string {
 	const (
 		KB = 1024
@@ -1345,21 +1341,21 @@ func FormatChunkSize(bytes int) string {
 	}
 }
 
-// ValidateChunkSize 验证缓冲区大小是否在合理范围内
+// ValidateChunkSize validates chunk size is within reasonable range
 func ValidateChunkSize(size int) error {
 	const (
-		MinChunkSize = 1024      // 最小 1KB
-		MaxChunkSize = 100 * 1024 * 1024 // 最大 100MB
+		MinChunkSize = 1024      // minimum 1KB
+		MaxChunkSize = 100 * 1024 * 1024 // maximum 100MB
 	)
 
 	if size < MinChunkSize {
 		return NewInvalidParameterError("chunk-size", fmt.Sprintf("%d", size),
-			fmt.Sprintf("缓冲区大小不能小于 %s", FormatChunkSize(MinChunkSize)))
+			fmt.Sprintf("chunk size cannot be less than %s", FormatChunkSize(MinChunkSize)))
 	}
 
 	if size > MaxChunkSize {
 		return NewInvalidParameterError("chunk-size", fmt.Sprintf("%d", size),
-			fmt.Sprintf("缓冲区大小不能超过 %s", FormatChunkSize(MaxChunkSize)))
+			fmt.Sprintf("chunk size cannot exceed %s", FormatChunkSize(MaxChunkSize)))
 	}
 
 	return nil
