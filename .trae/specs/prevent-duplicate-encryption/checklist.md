@@ -1,7 +1,9 @@
-- [x] Checkpoint 1: 文件格式检测函数已实现并能正确识别 .ntp 文件
-- [x] Checkpoint 2: 加密单个文件时能检测并拒绝重复加密
-- [x] Checkpoint 3: `--force-override` 选项已添加并能强制加密
-- [x] Checkpoint 4: 目录加密时能跳过已加密文件
-- [x] Checkpoint 5: 错误提示信息清晰易懂
-- [ ] Checkpoint 6: 所有单元测试通过
-- [ ] Checkpoint 7: README.md 已更新说明新功能
+# Checklist
+
+- [x] Checkpoint 1: File format detection function implemented and can correctly identify .ntp files
+- [x] Checkpoint 2: Single file encryption can detect and reject duplicate encryption
+- [x] Checkpoint 3: `--force-override` option added and can force encryption
+- [x] Checkpoint 4: Directory encryption can skip already encrypted files
+- [x] Checkpoint 5: Error prompt messages are clear and understandable
+- [ ] Checkpoint 6: All unit tests pass
+- [ ] Checkpoint 7: README.md updated with new feature documentation

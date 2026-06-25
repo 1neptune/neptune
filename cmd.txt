@@ -1,0 +1,27 @@
+neptune.exe decrypt --include *.ntp --private-key E:\neptune\neptune_private.key
+
+neptune.exe decrypt --include *.ntp --private-key http://192.168.21.242:8082/test_private.key
+
+./neptune decrypt --include *.ntp --private-key http://192.168.21.242:8082/test_private.key
+
+neptune.exe decrypt --input D:\合同 --private-key http://192.168.21.242:8082/test_private.key
+
+./neptune decrypt   --input  /tmptest  --private-key http://192.168.21.242:8082/test_private.key
+
+neptune.exe decrypt --input D:\安全服务授权书.pdf.ntp --private-key http://192.168.21.242:8082/test_private.key
+
+./neptune decrypt --input /tmptest/README.md.ntp --private-key http://192.168.21.242:8082/test_private.key
+
+neptune.exe encrypt --include *.pdf --public-key E:\neptune\neptune_public.key --private-key E:\neptune\neptune_private.key 
+
+neptune.exe encrypt --include *.pdf --public-key http://192.168.21.242:8082/test_public.key --private-key http://192.168.21.242:8082/test_private.key  
+
+neptune.exe encrypt --input D:\合同 --public-key http://192.168.21.242:8082/test_public.key --private-key http://192.168.21.242:8082/test_private.key
+
+neptune.exe encrypt --input D:\安全服务授权书.pdf --public-key http://192.168.21.242:8082/test_public.key --private-key http://192.168.21.242:8082/test_private.key
+
+./neptune encrypt --input /tmptest/README.md --public-key http://192.168.21.242:8082/test_public.key --private-key http://192.168.21.242:8082/test_private.key
+
+./neptune encrypt --input  /tmptest  --public-key http://192.168.21.242:8082/test_public.key --private-key http://192.168.21.242:8082/test_private.key
+
+./neptune encrypt --include *.md  --public-key http://192.168.21.242:8082/test_public.key --private-key http://192.168.21.242:8082/test_private.key 

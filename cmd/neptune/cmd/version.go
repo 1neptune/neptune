@@ -6,11 +6,15 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Version constants define the current version of the Neptune tool.
+// These are set at build time and displayed by the version command.
 const (
-	Version   = "v1.1.0"
-	BuildDate = "2026-06-13"
+	Version   = "v1.2.18" // Semantic version number
+	BuildDate = "2026-06-25" // Date of the current build
 )
 
+// versionCmd displays version and build information for Neptune.
+// It shows the version number, build date, and the encryption algorithms used.
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version information",
@@ -23,6 +27,8 @@ var versionCmd = &cobra.Command{
 	},
 }
 
+// init registers the version command with the root command.
+// This is called automatically when the package is imported.
 func init() {
 	rootCmd.AddCommand(versionCmd)
 }

@@ -1,38 +1,38 @@
-# Neptune - 目录加密解密功能 Spec
+# Neptune - Directory Encryption/Decryption Feature Spec
 
 ## Why
-用户需要加密整个目录及其子目录中的所有文件，而不仅仅是单个文件。
+Users need to encrypt all files in an entire directory and its subdirectories, not just individual files.
 
 ## What Changes
-- 在 `encrypt` 和 `decrypt` 命令中添加 `--recursive`（或 `-R`）选项
-- 支持递归加密/解密目录中的所有文件
-- 保持目录结构，解密时重建目录结构
-- 添加 `--include` 和 `--exclude` 选项支持文件过滤
+- Add `--recursive` (or `-R`) option to `encrypt` and `decrypt` commands
+- Support recursive encryption/decryption of all files in directories
+- Maintain directory structure and rebuild it during decryption
+- Add `--include` and `--exclude` options for file filtering
 
 ## Impact
-- 修改 cmd/neptune/cmd/encrypt.go 和 decrypt.go
-- 添加目录处理工具函数
-- 更新帮助文档
+- Modify cmd/neptune/cmd/encrypt.go and decrypt.go
+- Add directory handling utility functions
+- Update help documentation
 
 ## ADDED Requirements
 
-### Requirement: 目录加密
-系统应当支持递归加密目录中的所有文件。
+### Requirement: Directory Encryption
+The system shall support recursive encryption of all files in a directory.
 
-#### Scenario: 加密目录
-- **WHEN** 用户执行加密命令并指定目录路径和 `--recursive` 选项
-- **THEN** 系统递归加密目录中的所有文件，并保持目录结构
+#### Scenario: Encrypt Directory
+- **WHEN** user executes encrypt command with directory path and `--recursive` option
+- **THEN** system recursively encrypts all files in the directory while maintaining directory structure
 
-### Requirement: 目录解密
-系统应当支持递归解密目录中的所有加密文件。
+### Requirement: Directory Decryption
+The system shall support recursive decryption of all encrypted files in a directory.
 
-#### Scenario: 解密目录
-- **WHEN** 用户执行解密命令并指定目录路径和 `--recursive` 选项
-- **THEN** 系统递归解密目录中的所有加密文件，并重建原始目录结构
+#### Scenario: Decrypt Directory
+- **WHEN** user executes decrypt command with directory path and `--recursive` option
+- **THEN** system recursively decrypts all encrypted files in the directory and rebuilds original directory structure
 
-### Requirement: 文件过滤
-系统应当支持包含/排除特定文件模式。
+### Requirement: File Filtering
+The system shall support include/exclude patterns for specific file types.
 
-#### Scenario: 过滤文件
-- **WHEN** 用户指定 `--include` 或 `--exclude` 选项
-- **THEN** 系统只处理匹配的文件
+#### Scenario: Filter Files
+- **WHEN** user specifies `--include` or `--exclude` options
+- **THEN** system only processes matching files

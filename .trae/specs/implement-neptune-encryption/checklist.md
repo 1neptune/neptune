@@ -1,57 +1,57 @@
 # Checklist
 
-## 项目结构
-- [x] 项目目录结构符合 Go 标准布局
-- [x] go.mod 文件正确配置
-- [x] 所有依赖正确声明
+## Project Structure
+- [x] Project directory structure conforms to Go standard layout
+- [x] go.mod file configured correctly
+- [x] All dependencies declared correctly
 
-## Curve25519 模块
-- [x] 密钥生成函数正确实现
-- [x] 密钥对序列化/反序列化功能正常
-- [x] ECDH 共享密钥计算正确
-- [x] 单元测试覆盖率达到 80% 以上
+## Curve25519 Module
+- [x] Key generation function implemented correctly
+- [x] Key pair serialization/deserialization works correctly
+- [x] ECDH shared key calculation correct
+- [x] Unit test coverage reaches 80% or above
 
-## Sosemanuk 算法
-- [x] Sosemanuk 初始化正确实现
-- [x] 密钥调度算法符合规范
-- [x] 流生成函数输出正确
-- [x] 加密/解密功能正确
-- [x] 单元测试覆盖率达到 80% 以上
+## Sosemanuk Algorithm
+- [x] Sosemanuk initialization implemented correctly
+- [x] Key scheduling algorithm conforms to specification
+- [x] Stream generation function output correct
+- [x] Encryption/decryption functionality correct
+- [x] Unit test coverage reaches 80% or above
 
-## 加密/解密核心
-- [x] 密钥派生函数安全可靠
-- [x] 加密流程完整（密钥交换 + 流密码加密）
-- [x] 解密流程完整且正确
-- [x] 加密数据格式包含必要的元数据（发送方公钥、nonce等）
-- [x] 集成测试验证加密解密正确性
+## Encryption/Decryption Core
+- [x] Key derivation function secure and reliable
+- [x] Complete encryption flow (key exchange + stream cipher encryption)
+- [x] Complete and correct decryption flow
+- [x] Encrypted data format includes necessary metadata (sender public key, nonce, etc.)
+- [x] Integration tests verify encryption/decryption correctness
 
-## 命令行接口
-- [x] `keygen` 命令正常工作
-- [x] `encrypt` 命令支持文件和文本加密
-- [x] `decrypt` 命令支持文件和文本解密
-- [x] 帮助信息清晰完整
-- [x] 版本信息正确显示
+## Command-Line Interface
+- [x] `keygen` command works correctly
+- [x] `encrypt` command supports file and text encryption
+- [x] `decrypt` command supports file and text decryption
+- [x] Help information clear and complete
+- [x] Version information displayed correctly
 
-## 错误处理
-- [x] 文件读写错误正确处理
-- [x] 无效输入正确提示
-- [x] 密钥错误正确处理
-- [x] 用户友好的错误消息
+## Error Handling
+- [x] File read/write errors handled correctly
+- [x] Invalid input prompts correctly
+- [x] Key errors handled correctly
+- [x] User-friendly error messages
 
-## 安全性
-- [x] 私钥不以明文形式打印到日志
-- [x] 使用安全的随机数生成器
-- [x] 密钥派生使用标准算法
-- [x] 加密数据包含认证信息（防止篡改）
+## Security
+- [x] Private keys not printed to logs in plaintext
+- [x] Secure random number generator used
+- [x] Key derivation uses standard algorithm
+- [x] Encrypted data includes authentication information (tamper prevention)
 
-## 测试
-- [x] 单元测试全部通过
-- [x] 集成测试全部通过
-- [x] 端到端测试验证完整流程
-- [x] 边界情况测试通过
+## Testing
+- [x] All unit tests pass
+- [x] All integration tests pass
+- [x] End-to-end tests verify complete flow
+- [x] Boundary case tests pass
 
-## 文档
-- [x] README 包含安装说明
-- [x] README 包含使用示例
-- [x] 代码注释清晰
-- [x] API 文档完整
+## Documentation
+- [x] README includes installation instructions
+- [x] README includes usage examples
+- [x] Code comments clear
+- [x] API documentation complete

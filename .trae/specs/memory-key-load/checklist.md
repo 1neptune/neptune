@@ -1,6 +1,6 @@
-- [ ] Checkpoint 1: curve25519 包支持从字节数据加载密钥
-- [ ] Checkpoint 2: encrypt.go 支持纯内存密钥加载
-- [ ] Checkpoint 3: decrypt.go 支持纯内存密钥加载
-- [ ] Checkpoint 4: --input 参数不接受 URL
-- [ ] Checkpoint 5: --remote-url 参数已添加
-- [ ] Checkpoint 6: README.md 已更新
+- [ ] Checkpoint 1: curve25519 package supports loading keys from byte data
+- [ ] Checkpoint 2: encrypt.go supports memory-only key loading
+- [ ] Checkpoint 3: decrypt.go supports memory-only key loading
+- [ ] Checkpoint 4: --input parameter does not accept URLs
+- [ ] Checkpoint 5: --remote-url parameter added
+- [ ] Checkpoint 6: README.md updated

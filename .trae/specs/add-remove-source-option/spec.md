@@ -1,33 +1,33 @@
-# Neptune - 删除源文件功能 Spec
+# Neptune - Remove Source File Feature Spec
 
 ## Why
-用户在加密文件后希望自动删除原始文件，以确保敏感数据不会以明文形式残留。
+Users want to automatically delete original files after encryption to ensure sensitive data doesn't remain in plaintext.
 
 ## What Changes
-- 在 `encrypt` 命令中添加 `--remove-source`（或 `-r`）选项
-- 加密成功后，根据用户选项删除源文件
-- 添加安全确认机制，防止误删
+- Add `--remove-source` (or `-r`) option to `encrypt` command
+- After successful encryption, delete source files based on user option
+- Add safety confirmation mechanism to prevent accidental deletion
 
 ## Impact
-- 修改 cmd/neptune/cmd/encrypt.go
-- 影响加密流程
+- Modify cmd/neptune/cmd/encrypt.go
+- Affects encryption flow
 
 ## ADDED Requirements
 
-### Requirement: 删除源文件选项
-系统应当提供删除源文件的选项。
+### Requirement: Remove Source File Option
+The system shall provide an option to delete source files.
 
-#### Scenario: 加密并删除源文件
-- **WHEN** 用户执行加密命令并指定 `--remove-source` 选项
-- **AND** 加密成功完成
-- **THEN** 系统删除源文件
+#### Scenario: Encrypt and Delete Source File
+- **WHEN** user executes encrypt command with `--remove-source` option
+- **AND** encryption completes successfully
+- **THEN** system deletes the source file
 
-#### Scenario: 删除前确认（交互式）
-- **WHEN** 用户执行加密命令并指定 `--remove-source` 选项
-- **AND** 未指定 `--force` 选项
-- **THEN** 系统提示用户确认删除操作
+#### Scenario: Confirm Before Deletion (Interactive)
+- **WHEN** user executes encrypt command with `--remove-source` option
+- **AND** `--force` option is not specified
+- **THEN** system prompts user to confirm deletion
 
 ## MODIFIED Requirements
 
-### Requirement: 加密命令
-加密命令应支持删除源文件选项。
+### Requirement: Encrypt Command
+The encrypt command should support the remove source file option.

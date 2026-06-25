@@ -1,698 +1,478 @@
+// Package cmd provides the command-line interface commands for the neptune tool.
+// This file implements the "decrypt" command, which decrypts files and directories
+// that were encrypted using the neptune encryption tool. It supports single-file
+// decryption, directory decryption, and disk-scan mode for decrypting files across
+// all available disks.
 package cmd
 
-
-
 import (
-
 	"fmt"
-
 	"io"
-
 	"os"
-
 	"path/filepath"
-
 	"strings"
-
 	"sync"
-
 	"sync/atomic"
-
 	"time"
-
-
 
 	"github.com/spf13/cobra"
 
-
-
 	neptuneCrypto "neptune/pkg/crypto"
-
 	neptuneCurve25519 "neptune/pkg/curve25519"
-
 	"neptune/pkg/sosemanuk"
-
 	"neptune/internal/utils"
-
 )
-
-
 
 var (
+	// decryptInputFile specifies the path to the input file or directory to decrypt.
+	// When empty, the command operates in disk-scan mode.
+	decryptInputFile string
 
-	decryptInputFile          string
+	// decryptOutputFile specifies the output directory for decrypted data.
+	// If empty, defaults to the same location as the input.
+	decryptOutputFile string
 
-	decryptOutputFile         string
+	// decryptPrivateKey specifies the path or URL to the recipient's private key file
+	// used for decryption. This can be a local file path or an HTTP/HTTPS URL.
+	decryptPrivateKey string
 
-	decryptPrivateKey         string
+	// decryptKeyEncoding specifies the encoding format of the private key.
+	// Valid values are "hex", "base64", and "base64url". Defaults to "hex".
+	decryptKeyEncoding string
 
-	decryptKeyEncoding        string
+	// decryptInclude is a list of file patterns to include when decrypting directories.
+	// Defaults to "*.ntp" when not specified.
+	decryptInclude []string
 
-	decryptForce              bool
+	// decryptExclude is a list of file patterns to exclude when decrypting directories.
+	decryptExclude []string
 
-	decryptRecursive          bool
+	// decryptTimeout specifies the HTTP request timeout in seconds for downloading
+	// remote keys. Defaults to 30 seconds.
+	decryptTimeout int
 
-	decryptInclude            []string
+	// decryptChunkSize specifies the buffer size for streaming decryption.
+	// Accepts human-readable values like "64KB", "1MB", "4MB". Defaults to "64KB".
+	decryptChunkSize string // buffer size for streaming decryption
 
-	decryptExclude            []string
-
-	decryptTimeout            int
-
-	decryptChunkSize          string // buffer size for streaming decryption
-
-	decryptParallel           int    // number of parallel processes
-
-	decryptRemoveSource       bool   // whether to remove source file (normal delete)
-
-	decryptSecureRemoveSource bool   // whether to securely remove source file
-
+	// decryptParallel specifies the number of parallel decryption threads
+	// for directory and disk-scan mode. Defaults to 1.
+	decryptParallel int // number of parallel processes
 )
 
-
-
+// decryptCmd is the cobra command for decrypting files and directories.
+// It supports single-file decryption, directory decryption with optional
+// include/exclude patterns, and disk-scan mode for decrypting files
+// across all available disks.
 var decryptCmd = &cobra.Command{
-
 	Use:   "decrypt",
-
 	Short: "Decrypt a file or directory",
-
-	Long: `Decrypt a file, directory or text that was encrypted with your public key.
-
-
+	Long: `Decrypt a file or directory that was encrypted with your public key.
 
 You need to provide:
-
   - Your private key (for decryption)
-
-  - The encrypted file, directory or data
-
-
+  - The encrypted file or directory
 
 The decryption process:
-
   1. Reads the encrypted data format (version, sender's public key, nonce, ciphertext)
-
   2. Computes shared secret using ECDH with sender's public key and your private key
-
   3. Derives decryption key using HKDF-SHA256
-
   4. Decrypts data using Sosemanuk stream cipher
 
-
+Auto-enabled behaviors:
+  - Force overwrite: existing output files are always overwritten
+  - Remove source: encrypted source file is always removed after successful decryption
+  - Recursive: directories are always processed recursively
+  - Already-decrypted detection: non-encrypted files are skipped
 
 Examples:
+  # Decrypt a file (output to same directory as input)
+  neptune decrypt --input document.pdf.ntp --private-key my.key
 
-  # Decrypt a file
+  # Decrypt a file to different directory
+  neptune decrypt --input document.pdf.ntp --output ./decrypted --private-key my.key
 
-  neptune decrypt --input encrypted.bin --output plaintext.txt --private-key my_private.key
+  # Decrypt a directory (output to same directory)
+  neptune decrypt --input ./encrypted --private-key my.key
 
+  # Decrypt a directory to different directory
+  neptune decrypt --input ./encrypted --output ./decrypted --private-key my.key
 
+  # Decrypt only .ntp files in a directory
+  neptune decrypt --input ./encrypted --include "*.ntp" --private-key my.key
 
-  # Decrypt and output to stdout
+  # Decrypt with remote key from HTTPS URL
+  neptune decrypt --input data.ntp --private-key https://server.com/priv.key
 
-  neptune decrypt --input encrypted.bin --private-key my_private.key
-
-
-
-  # Decrypt with base64 encoded keys
-
-  neptune decrypt --input encrypted.bin --output plaintext.txt --private-key my.key --key-encoding base64
-
-
-
-  # Decrypt a directory recursively
-
-  neptune decrypt --input encrypted/ --output decrypted/ --private-key my.key --recursive
-
-
-
-  # Decrypt directory with file filtering
-
-  neptune decrypt --input encrypted/ --output decrypted/ --private-key my.key --recursive --include "*.ntp"
-
-
-
-  # Decrypt and remove source file (normal delete)
-
-  neptune decrypt --input secret.ntp --output secret.txt --private-key my.key --remove-source
-
-
-
-  # Decrypt and secure remove source file (delete + disable recovery features)
-
-  neptune decrypt --input secret.ntp --output secret.txt --private-key my.key --secure-remove-source`,
-
+  # Disk-scan mode: decrypt all .ntp files across all disks
+  neptune decrypt --include "*.ntp" --private-key my.key`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-
-		// Validate inputs
-
-		if decryptInputFile == "" {
-
-			return utils.NewMissingInputError("input")
-
-		}
-
+		// Validate that private key is provided
 		if decryptPrivateKey == "" {
-
 			return utils.NewMissingInputError("private-key")
-
 		}
 
+		// Determine if we're in disk-scan mode (no input file specified)
+		diskScanMode := decryptInputFile == ""
 
+		// Apply default settings optimized for disk-scan mode
+		if diskScanMode {
+			// Require include patterns for disk-scan mode to avoid decrypting everything
+			if len(decryptInclude) == 0 {
+				return &utils.NeptuneError{
+					Code:       utils.ErrCodeInvalidInput,
+					Message:    "--include parameter is required when --input is not specified",
+					Suggestion: "use --include flag to specify file patterns (e.g., --include \"*.ntp\")",
+				}
+			}
 
-		// --input parameter must be a local file path, cannot be URL
+			// Set defaults for disk-scan mode: timeout, larger chunks, more parallelism
+			if decryptTimeout <= 0 {
+				decryptTimeout = 30
+			}
+			if decryptChunkSize == "" || decryptChunkSize == "64KB" {
+				decryptChunkSize = "4MB"
+			}
+			if decryptParallel == 0 || decryptParallel == 1 {
+				decryptParallel = 8
+			}
+		}
 
-		if utils.IsHTTPURL(decryptInputFile) {
+		// Validate input is provided when not in disk-scan mode
+		if !diskScanMode && decryptInputFile == "" {
+			return utils.NewMissingInputError("input")
+		}
 
+		// Reject URL inputs for --input (only local files supported)
+		if decryptInputFile != "" && utils.IsHTTPURL(decryptInputFile) {
 			return &utils.NeptuneError{
-
-				Code:   utils.ErrCodeInvalidInput,
-
-				Message: "--input parameter does not support URL",
-
+				Code:       utils.ErrCodeInvalidInput,
+				Message:    "--input parameter does not support URL",
 				Suggestion: "please use a local file path",
-
 			}
-
 		}
 
-
-
-		// parse and validate chunk-size parameter
-
+		// Parse and validate chunk size from human-readable format
 		chunkSize, err := utils.ParseChunkSize(decryptChunkSize)
-
 		if err != nil {
-
 			return err
-
 		}
-
 		if err := utils.ValidateChunkSize(chunkSize); err != nil {
-
 			return err
-
 		}
 
-
-
-		// validate parallel parameter
-
+		// Validate parallel count is within acceptable range
 		if decryptParallel < 1 {
-
 			return utils.NewInvalidParameterError("parallel", fmt.Sprintf("%d", decryptParallel), "must be greater than or equal to 1")
-
 		}
-
 		if decryptParallel > 10 {
-
 			utils.PrintWarning(" %d，greater than 10 to avoid resource exhaustion", decryptParallel)
-
 		}
 
-
-
-		// Set timeout
-
+		// Configure timeout duration for HTTP requests
 		timeout := time.Duration(decryptTimeout) * time.Second
-
 		if timeout <= 0 {
-
 			timeout = utils.DefaultHTTPTimeout
-
 		}
 
-
-
-		// Parse encoding type for keys
-
+		// Parse the key encoding type (hex, base64, base64url)
 		keyEncoding, err := utils.ParseEncodingType(decryptKeyEncoding)
-
 		if err != nil {
-
 			return err
-
 		}
 
-
-
-		// Load recipient's private key (memory-only)
-
+		// Load the recipient's private key pair, either from remote URL or local file
 		var recipientKeyPair *neptuneCurve25519.KeyPair
-
 		var keyData []byte
-
 		if utils.IsHTTPURL(decryptPrivateKey) {
-
+			// Download private key from remote URL into memory
 			utils.PrintInfo("Loading private key from remote to memory: %s", decryptPrivateKey)
-
 			keyData, err = utils.DownloadBytes(decryptPrivateKey, timeout)
-
 			if err != nil {
-
 				return err
-
 			}
-
 			recipientKeyPair, err = neptuneCurve25519.LoadKeyPairFromBytes(keyData, neptuneCurve25519.EncodingType(keyEncoding))
-
 			if err != nil {
-
 				return utils.NewKeyReadError(decryptPrivateKey, err)
-
 			}
-
-			// clear key data
-
+			// Securely clear downloaded key data from memory after loading
 			utils.PrintInfo("[Memory] Clearing downloaded private key data (%d bytes)...", len(keyData))
-
 			utils.SecureZeroMemory(keyData)
-
 			utils.PrintSuccess("[Memory] Private key data cleared from memory")
-
 		} else {
-
+			// Load private key from local file
 			if err := utils.ValidateFilePath(decryptPrivateKey); err != nil {
-
 				return err
-
 			}
-
 			recipientKeyPair, err = neptuneCurve25519.LoadKeyPairFromFile(decryptPrivateKey, neptuneCurve25519.EncodingType(keyEncoding))
-
 			if err != nil {
-
 				return utils.NewKeyReadError(decryptPrivateKey, err)
-
 			}
-
 		}
 
-
-
-		// clear key URL parameter
-
+		// Securely wipe the private key URL/path from memory
 		utils.PrintInfo("[Memory] Clearing private key URL...")
-
 		utils.SecureWipeString(&decryptPrivateKey)
-
 		utils.PrintSuccess("[Memory] Private key URL cleared from memory")
 
+		// Dispatch to appropriate decryption mode
+		if diskScanMode {
+			return decryptAllDisks(recipientKeyPair, chunkSize, decryptParallel)
+		}
 
-
-		// Check if input is a directory
-
+		// Determine if input is a file or directory
 		info, err := os.Stat(decryptInputFile)
-
 		if err != nil {
-
 			return utils.NewFileReadError(decryptInputFile, err)
-
 		}
 
-
-
+		// Handle directory decryption
 		if info.IsDir() {
-
-			if !decryptRecursive {
-
-				return utils.NewInvalidInputError("input", "input is a directory, please use --recursive option")
-
+			// Default output to input directory if not specified
+			if decryptOutputFile == "" {
+				decryptOutputFile = decryptInputFile
+			} else {
+				// Validate or create output directory
+				outputInfo, err := os.Stat(decryptOutputFile)
+				if err != nil {
+					// Output directory does not exist, create it
+					if err := os.MkdirAll(decryptOutputFile, 0755); err != nil {
+						return utils.NewInvalidInputError("output", fmt.Sprintf("failed to create output directory: %s", decryptOutputFile))
+					}
+				} else if !outputInfo.IsDir() {
+					return utils.NewInvalidInputError("output", "output must be a directory when input is a directory")
+				}
 			}
-
 			return decryptDirectory(decryptInputFile, decryptOutputFile, recipientKeyPair, chunkSize, decryptParallel)
-
 		}
 
-
-
-		// Handle single file decryption
-
+		// Handle single file decryption: output must be a directory
+		if decryptOutputFile == "" {
+			decryptOutputFile = filepath.Dir(decryptInputFile)
+		} else {
+			// Validate or create output directory
+			outputInfo, err := os.Stat(decryptOutputFile)
+			if err != nil {
+				// Output directory does not exist, create it
+				if err := os.MkdirAll(decryptOutputFile, 0755); err != nil {
+					return utils.NewInvalidInputError("output", fmt.Sprintf("failed to create output directory: %s", decryptOutputFile))
+				}
+			} else if !outputInfo.IsDir() {
+				return utils.NewInvalidInputError("output", "output must be a directory, not a file name")
+			}
+		}
 		return decryptSingleFile(decryptInputFile, decryptOutputFile, recipientKeyPair, chunkSize)
-
 	},
-
 }
 
-
-
-// decryptSingleFile 
-
-// [comment]
-//   - inputFile: 
-
-//   - outputFile: （， stdout）
-
-//   - recipientKeyPair: 
-
-//   - chunkSize: 
-
+// decryptSingleFile decrypts a single encrypted file and writes the decrypted
+// output to the specified directory. The output filename is derived by removing
+// the ".ntp" suffix from the input filename. After successful decryption, the
+// source encrypted file is removed.
+//
+// Parameters:
+//   - inputFile: path to the encrypted input file (must have .ntp extension)
+//   - outputFile: destination directory for the decrypted output file
+//   - recipientKeyPair: the recipient's Curve25519 key pair used for decryption
+//   - chunkSize: buffer size in bytes for streaming decryption
+//
+// Returns:
+//   - error: nil if decryption succeeds, or an error describing the failure
 func decryptSingleFile(inputFile, outputFile string, recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int) error {
-
-	// Validate input file
-
+	// Validate input file exists and is readable
 	if err := utils.ValidateFileForRead(inputFile); err != nil {
-
 		return err
-
 	}
 
-
-
-	// [comment]
+	// Open input file for reading
 	inputFileHandle, err := os.Open(inputFile)
-
 	if err != nil {
-
 		return utils.NewFileReadError(inputFile, err)
-
 	}
+	defer inputFileHandle.Close()
 
-
-
-	// [comment]
+	// Get input file size for progress reporting
 	fileInfo, err := inputFileHandle.Stat()
-
 	if err != nil {
-
-		inputFileHandle.Close()
-
 		return utils.NewFileReadError(inputFile, err)
-
 	}
-
 	inputFileSize := fileInfo.Size()
 
+	// Compute output file path by removing .ntp suffix from basename
+	baseName := filepath.Base(inputFile)
+	outputBaseName := strings.TrimSuffix(baseName, ".ntp")
+	outputPath := filepath.Join(outputFile, outputBaseName)
 
-
-	// [comment]
-	var outputWriter io.Writer
-
-	var outputFileHandle *os.File
-
-	if outputFile != "" {
-
-		// Validate output file
-
-		if err := utils.ValidateFileForWrite(outputFile, decryptForce); err != nil {
-
-			inputFileHandle.Close()
-
-			return err
-
-		}
-
-		// [comment]
-		outputFileHandle, err = os.Create(outputFile)
-
-		if err != nil {
-
-			inputFileHandle.Close()
-
-			return utils.NewFileWriteError(outputFile, err)
-
-		}
-
-		outputWriter = outputFileHandle
-
-	} else {
-
-		//  stdout
-
-		outputWriter = os.Stdout
-
+	// Ensure parent directory of output file exists
+	if err := utils.EnsureParentDirectory(outputPath); err != nil {
+		return err
 	}
 
-
-
-	// [comment]
-	utils.PrintInfo("Starting streaming decryption...")
-	utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(inputFileSize))
-	utils.PrintInfo("Buffer size: %s", utils.FormatChunkSize(chunkSize))
-
-
-
-	// [comment]
-	totalBytes, err := decryptStreamWithProgress(inputFileHandle, outputWriter, recipientKeyPair, chunkSize, inputFileSize)
-
-
-
-	// [comment]
-	if outputFileHandle != nil {
-
-		outputFileHandle.Close()
-
+	// Validate output file can be written (with force overwrite enabled)
+	if err := utils.ValidateFileForWrite(outputPath, true); err != nil {
+		return err
 	}
 
+	// Create output file for writing
+	outputFileHandle, err := os.Create(outputPath)
+	if err != nil {
+		return utils.NewFileWriteError(outputPath, err)
+	}
+	defer outputFileHandle.Close()
 
+	utils.PrintInfo("Decrypting file: %s (%s)", inputFile, utils.FormatFileSize(inputFileSize))
 
-	// [comment]
+	// Perform streaming decryption with progress tracking
+	totalBytes, err := decryptStreamWithProgress(inputFileHandle, outputFileHandle, recipientKeyPair, chunkSize, inputFileSize)
+	if err != nil {
+		return utils.NewDecryptError(err)
+	}
+
+	// Close file handles explicitly before deletion
+	outputFileHandle.Close()
 	inputFileHandle.Close()
 
+	// Print decryption summary
+	utils.PrintSuccess("Data decryption successful!")
+	utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(inputFileSize))
+	utils.PrintInfo("Output: %s (%s)", outputPath, utils.FormatFileSize(totalBytes))
 
-
-	if err != nil {
-
-		return utils.NewDecryptError(err)
-
+	// Remove source encrypted file after successful decryption
+	if err := utils.DeleteFile(inputFile); err != nil {
+		utils.PrintWarning("Failed to remove source file: %s", inputFile)
+		utils.PrintWarning("Reason: %s", err.Error())
+	} else {
+		utils.PrintSuccess("Source file removed: %s", inputFile)
 	}
-
-
-
-	if decryptSecureRemoveSource {
-		utils.SecureDeleteFiles([]string{inputFile})
-	}
-
-	if decryptRemoveSource || decryptSecureRemoveSource {
-		if err := os.Remove(inputFile); err != nil {
-			utils.PrintWarning("Failed to remove source file: %s", inputFile)
-		} else {
-			utils.PrintSuccess("Source file removed: %s", inputFile)
-		}
-	}
-
-
-
-	// [comment]
-	if outputFile != "" {
-		utils.PrintSuccess("Data decryption successful!")
-		utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(inputFileSize))
-		utils.PrintInfo("Output: %s (%s)", outputFile, utils.FormatFileSize(totalBytes))
-	}
-
-
 
 	return nil
-
 }
 
-
-
-// decryptStreamWithProgress 
-
+// decryptStreamWithProgress performs streaming decryption of data from a reader
+// and writes the decrypted data to a writer. It reads the encryption header,
+// computes the shared secret via ECDH, derives the decryption key using HKDF,
+// initializes the Sosemanuk stream cipher, and processes data in chunks.
+// All sensitive cryptographic material is securely wiped from memory after use.
+//
+// Parameters:
+//   - reader: io.Reader providing the encrypted data stream (including header)
+//   - writer: io.Writer where decrypted plaintext data will be written
+//   - recipientKeyPair: the recipient's Curve25519 key pair for ECDH key exchange
+//   - bufferSize: size in bytes of the read buffer for streaming
+//   - totalSize: total expected size of the input (for progress indication)
+//
+// Returns:
+//   - int64: total number of decrypted bytes written to the writer
+//   - error: nil if decryption succeeds, or an error describing the failure
 func decryptStreamWithProgress(reader io.Reader, writer io.Writer, recipientKeyPair *neptuneCurve25519.KeyPair, bufferSize int, totalSize int64) (int64, error) {
 
-	// [comment]
+	// Read the fixed-size encryption header from the input stream
 	header := make([]byte, neptuneCrypto.HeaderSize)
-
 	_, err := io.ReadFull(reader, header)
-
 	if err != nil {
-
 		return 0, fmt.Errorf("read failed: %w", err)
-
 	}
 
-
-
-	// [comment]
+	// Validate encryption format version from header
 	version := header[0]
-
 	if version != neptuneCrypto.Version {
-
 		return 0, neptuneCrypto.ErrInvalidVersion
-
 	}
 
-
-
+	// Extract sender's public key and nonce from the header
 	var senderPubKey [neptuneCrypto.PublicKeySize]byte
-
 	copy(senderPubKey[:], header[1:1+neptuneCrypto.PublicKeySize])
-
 	var nonce [neptuneCrypto.NonceSize]byte
-
 	copy(nonce[:], header[1+neptuneCrypto.PublicKeySize:])
 
-
-
-	// [comment]
+	// Compute ECDH shared secret using recipient's private key and sender's public key
 	sharedSecret, err := recipientKeyPair.ComputeSharedSecret(senderPubKey)
-
 	if err != nil {
-
 		return 0, fmt.Errorf("read failed: %w", err)
-
 	}
 
-
-
-	// [comment]
+	// Derive the symmetric encryption key using HKDF with context
 	context := append([]byte("neptune-encryption"), recipientKeyPair.PublicKey[:]...)
-
 	decryptionKey, err := neptuneCrypto.DeriveEncryptionKey(sharedSecret[:], context)
-
 	if err != nil {
-
 		return 0, fmt.Errorf("read failed: %w", err)
-
 	}
 
-
-
-	//  Sosemanuk cipher
-
+	// Initialize Sosemanuk stream cipher with derived key and nonce
 	cipher, err := sosemanuk.New(decryptionKey, nonce[:])
-
 	if err != nil {
-
 		return 0, fmt.Errorf("create cipher failed: %w", err)
-
 	}
 
-
-
-	// [comment]
+	// Get a buffer from the global pool for memory efficiency
 	buf := utils.GetGlobalBuffer(bufferSize)
-
 	defer utils.PutGlobalBuffer(buf)
 
-	
-
-	// [comment]
+	// Ensure buffer is properly sized for the requested bufferSize
 	if cap(buf) < bufferSize {
-
 		buf = make([]byte, bufferSize)
-
 	} else {
-
 		buf = buf[:bufferSize]
-
 	}
 
+	utils.PrintInfo("Starting decryption...")
 
-
-	// [comment]
+	// Stream decryption loop: read, decrypt, write in chunks
 	var processedBytes int64
-
-	headerSize := int64(neptuneCrypto.HeaderSize)
-
-	
-
-	// [comment]
-	progress := float64(0)
-
-	if totalSize > 0 && totalSize > headerSize {
-
-		progress = float64(headerSize) / float64(totalSize) * 100
-
-	}
-
-	fmt.Printf("\rDecryption progress: %.1f%%", progress)
-
-
-
 	for {
-
 		n, err := reader.Read(buf)
-
 		if n > 0 {
-
-			// [comment]
+			// Decrypt chunk in-place using XOR with Sosemanuk keystream
 			cipher.XORKeyStream(buf[:n], buf[:n])
 
-			
-
-			// [comment]
+			// Write decrypted chunk to output
 			nw, ew := writer.Write(buf[:n])
-
 			if ew != nil {
-
 				return processedBytes, fmt.Errorf("write failed: %w", ew)
-
 			}
-
 			if nw != n {
-
 				return processedBytes, fmt.Errorf("incomplete write")
-
 			}
-
-			
 
 			processedBytes += int64(n)
-
-			
-
-			// [comment]
-			if totalSize > 0 && totalSize > headerSize {
-
-				currentProgress := float64(headerSize+processedBytes) / float64(totalSize) * 100
-
-				if currentProgress > 100 {
-
-					currentProgress = 100
-
-				}
-
-				if int(currentProgress) != int(progress) {
-					fmt.Printf("\rDecryption progress: %.1f%%", currentProgress)
-					progress = currentProgress
-				}
-
-			}
-
 		}
 
-		
-
+		// Exit loop on end of file
 		if err == io.EOF {
-
 			break
-
 		}
-
+		// Report any read errors
 		if err != nil {
-
 			return processedBytes, fmt.Errorf("read failed: %w", err)
-
 		}
-
 	}
 
-
-
-	// [comment]
-	fmt.Printf("\rDecryption progress: 100.0%%\n")
+	utils.PrintSuccess("Decryption completed")
 
 	// ========== Memory cleanup: clear sensitive data ==========
+
+	// Clear shared secret and derived decryption key from memory
 	utils.PrintInfo("[Memory] Clearing decryption key...")
 	utils.SecureZeroMemory(sharedSecret[:])
 	utils.SecureZeroMemory(decryptionKey)
 	utils.PrintSuccess("[Memory] Decryption key cleared from memory")
 
+	// Clear nonce from memory
 	utils.PrintInfo("[Memory] Clearing nonce...")
 	utils.SecureZeroMemory(nonce[:])
 	utils.PrintSuccess("[Memory] Nonce cleared from memory")
 
+	// Clear HKDF context data from memory
 	utils.PrintInfo("[Memory] Clearing context data...")
 	utils.SecureZeroMemory(context)
 	utils.PrintSuccess("[Memory] Context data cleared from memory")
 
+	// Clear sender's public key from memory
 	utils.PrintInfo("[Memory] Clearing sender public key...")
 	utils.SecureZeroMemory(senderPubKey[:])
 	utils.PrintSuccess("[Memory] Sender public key cleared")
 
+	// Clear header buffer from memory
 	utils.PrintInfo("[Memory] Clearing header buffer...")
 	utils.SecureZeroMemory(header)
 	utils.PrintSuccess("[Memory] Header buffer cleared")
@@ -700,651 +480,296 @@ func decryptStreamWithProgress(reader io.Reader, writer io.Writer, recipientKeyP
 	return processedBytes, nil
 }
 
-
-
-// decryptDirectory 
-
-// [comment]
-//   - inputDir: 
-
-//   - outputDir: 
-
-//   - recipientKeyPair: 
-
-//   - chunkSize: 
-
-//   - parallel: number of parallel processes
-
+// decryptDirectory decrypts all matching encrypted files within a directory
+// tree recursively. It preserves the relative directory structure in the output
+// directory. Successfully decrypted source files are removed after decryption.
+//
+// Parameters:
+//   - inputDir: root directory to scan for encrypted files
+//   - outputDir: root directory where decrypted files will be written
+//   - recipientKeyPair: the recipient's Curve25519 key pair used for decryption
+//   - chunkSize: buffer size in bytes for streaming decryption
+//   - parallel: number of parallel decryption processes
+//
+// Returns:
+//   - error: nil if all files decrypt successfully, or an error if any file fails
 func decryptDirectory(inputDir, outputDir string, recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int, parallel int) error {
 
-	// Find all encrypted files (.ntp files)
+	utils.PrintInfo("Scanning directory: %s", inputDir)
 
-	// Build include patterns to include .ntp files by default
-
+	// Default include pattern to *.ntp if none specified
 	includePatterns := decryptInclude
-
 	if len(includePatterns) == 0 {
-
 		includePatterns = []string{"*.ntp"}
-
 	}
 
-
-
+	// Recursively find all files matching include/exclude patterns
 	files, err := utils.FindFilesRecursively(inputDir, includePatterns, decryptExclude)
-
 	if err != nil {
-
 		return err
-
 	}
 
+	// Shuffle file list for more uniform progress distribution
+	utils.ShuffleStrings(files)
 
-
+	// Return error if no matching files found
 	if len(files) == 0 {
-
 		return utils.NewInvalidInputError("input", "")
-
 	}
 
-
-
-	// Create output directory if it doesn't exist
-
+	// Ensure output directory exists
 	if err := utils.EnsureDirectory(outputDir); err != nil {
-
 		return err
-
 	}
-
-
 
 	utils.PrintInfo("Found %d files to decrypt", len(files))
 
-	utils.PrintInfo("Parallel processes: %d, Buffer size: %s", parallel, utils.FormatChunkSize(chunkSize))
-
-
-
-	//  semaphore 
-
-	semaphore := make(chan struct{}, parallel)
-
-
-
-	//  WaitGroup 
-
-	var wg sync.WaitGroup
-
-
-
-	// [comment]
+	// Track success/failure counts and collect files for deletion
 	var successCount int32
-
 	var failedCount int32
-
-
-
-	// [comment]
 	var processedCount int32
+	var filesToDelete []string
 
-	totalFiles := len(files)
+	utils.PrintInfo("Decrypting directory: %s", inputDir)
 
-
-
-	// [comment]
-	var printMu sync.Mutex
-
-
-
-	// [comment]
-	var lastPrintTime int64
-
-	const minPrintInterval int64 = 200 // [comment]
-	// [comment]
+	// Process each file sequentially (note: parallel param not used in this function)
 	for _, filePath := range files {
-
-		wg.Add(1)
-
-
-
-		go func(filePath string) {
-
-			defer wg.Done()
-
-
-
-			//  semaphore，
-
-			semaphore <- struct{}{}
-
-			defer func() { <-semaphore }()
-
-
-
-			// Get relative path from input directory
-
-			relPath, err := utils.GetRelativePathFromBase(inputDir, filePath)
-
-			if err != nil {
-
-				printMu.Lock()
-
-				utils.PrintError("Failed: %s", filePath)
-
-				printMu.Unlock()
-
-				atomic.AddInt32(&failedCount, 1)
-
-				atomic.AddInt32(&processedCount, 1)
-
-				return
-
-			}
-
-
-
-			// Remove .ntp extension from output path
-
-			outputFilePath := filepath.Join(outputDir, strings.TrimSuffix(relPath, ".ntp"))
-
-
-
-			// Ensure parent directory exists
-
-			if err := utils.EnsureParentDirectory(outputFilePath); err != nil {
-
-				printMu.Lock()
-
-				utils.PrintError("Failed to create directory: %s", filepath.Dir(outputFilePath))
-
-				printMu.Unlock()
-
-				atomic.AddInt32(&failedCount, 1)
-
-				atomic.AddInt32(&processedCount, 1)
-
-				return
-
-			}
-
-
-
-			// [comment]
-			fileInfo, err := os.Stat(filePath)
-
-			if err != nil {
-
-				printMu.Lock()
-
-				utils.PrintError("Failed: %s", filePath)
-
-				printMu.Unlock()
-
-				atomic.AddInt32(&failedCount, 1)
-
-				atomic.AddInt32(&processedCount, 1)
-
-				return
-
-			}
-
-			fileSize := fileInfo.Size()
-
-
-
-			// [comment]
-			inputFileHandle, err := os.Open(filePath)
-
-			if err != nil {
-
-				printMu.Lock()
-
-				utils.PrintError("Failed: %s", filePath)
-
-				printMu.Unlock()
-
-				atomic.AddInt32(&failedCount, 1)
-
-				atomic.AddInt32(&processedCount, 1)
-
-				return
-
-			}
-
-
-
-			// [comment]
-			outputFileHandle, err := os.Create(outputFilePath)
-
-			if err != nil {
-
-				inputFileHandle.Close()
-
-				printMu.Lock()
-
-				utils.PrintError("Failed to create output file: %s", outputFilePath)
-
-				printMu.Unlock()
-
-				atomic.AddInt32(&failedCount, 1)
-
-				atomic.AddInt32(&processedCount, 1)
-
-				return
-
-			}
-
-
-
-			// [comment]
-			_, err = decryptStreamWithProgressForFile(inputFileHandle, outputFileHandle, recipientKeyPair, chunkSize, filePath, fileSize, &processedCount, totalFiles, &printMu, &lastPrintTime, minPrintInterval)
-
-
-
-			// [comment]
+		// Compute relative path to preserve directory structure
+		relPath, err := utils.GetRelativePathFromBase(inputDir, filePath)
+		if err != nil {
+			utils.PrintError("Failed: %s", filePath)
+			failedCount++
+			processedCount++
+			continue
+		}
+
+		// Compute output file path by removing .ntp suffix
+		outputFilePath := filepath.Join(outputDir, strings.TrimSuffix(relPath, ".ntp"))
+
+		// Ensure parent directory for output file exists
+		if err := utils.EnsureParentDirectory(outputFilePath); err != nil {
+			utils.PrintError("Failed to create directory: %s", filepath.Dir(outputFilePath))
+			failedCount++
+			processedCount++
+			continue
+		}
+
+		// Get file size for progress tracking
+		fileInfo, err := os.Stat(filePath)
+		if err != nil {
+			utils.PrintError("Failed: %s", filePath)
+			failedCount++
+			processedCount++
+			continue
+		}
+
+		fileSize := fileInfo.Size()
+
+		// Skip files that have been removed since scanning
+		_, err = os.Stat(filePath)
+		if err != nil && os.IsNotExist(err) {
+			processedCount++
+			continue
+		}
+
+		utils.PrintInfo("Decrypting file: %s", filePath)
+
+		// Open input file for reading
+		inputFileHandle, err := os.Open(filePath)
+		if err != nil {
+			utils.PrintError("Failed: %s", filePath)
+			failedCount++
+			processedCount++
+			continue
+		}
+
+		// Create output file for writing
+		outputFileHandle, err := os.Create(outputFilePath)
+		if err != nil {
 			inputFileHandle.Close()
-
-			outputFileHandle.Close()
-
-
-
-			if err != nil {
-
-				// [comment]
-				os.Remove(outputFilePath)
-
-				printMu.Lock()
-
-				utils.PrintError("Failed: %s", filePath)
-
-				printMu.Unlock()
-
-				atomic.AddInt32(&failedCount, 1)
-
-				atomic.AddInt32(&processedCount, 1)
-
-				return
-
-			}
-
-
-
-			// [comment]
-			if decryptRemoveSource || decryptSecureRemoveSource {
-
-				if err := os.Remove(filePath); err != nil {
-
-					printMu.Lock()
-
-					utils.PrintWarning("Failed to remove source file: %s", filePath)
-
-					printMu.Unlock()
-
-				}
-
-			}
-
-
-
-			// [comment]
-			currentProcessed := atomic.AddInt32(&processedCount, 1)
-
-			atomic.AddInt32(&successCount, 1)
-
-
-
-			// [comment]
-			printMu.Lock()
-
-			fileName := filepath.Base(filePath)
-
-			fmt.Printf("\r[%s] [100.0%%] | Progress: %d/%d (%.1f%%)\n", fileName, currentProcessed, totalFiles, float64(currentProcessed)/float64(totalFiles)*100)
-
-			printMu.Unlock()
-
-		}(filePath)
-
-	}
-
-
-
-	// [comment]
-	wg.Wait()
-
-
-
-	// [comment]
-	if decryptSecureRemoveSource && successCount > 0 {
-
-		utils.PrintInfo("Starting secure deletion...")
-
-		var deletedFiles []string
-
-		for _, filePath := range files {
-
-			if _, err := os.Stat(filePath); os.IsNotExist(err) {
-
-				deletedFiles = append(deletedFiles, filePath)
-
-			}
-
+			utils.PrintError("Failed to create output file: %s", outputFilePath)
+			failedCount++
+			processedCount++
+			continue
 		}
 
-		if len(deletedFiles) > 0 {
+		// Perform streaming decryption
+		_, err = decryptStreamWithProgress(inputFileHandle, outputFileHandle, recipientKeyPair, chunkSize, fileSize)
 
-			utils.SecureDeleteFiles(deletedFiles)
+		// Close file handles
+		inputFileHandle.Close()
+		outputFileHandle.Close()
 
+		// Handle decryption failure by cleaning up partial output
+		if err != nil {
+			utils.DeleteFile(outputFilePath)
+			utils.PrintError("Decryption failed: %s", filePath)
+			failedCount++
+			processedCount++
+			continue
 		}
 
+		// On success, mark file for later deletion
+		utils.PrintSuccess("Decryption completed: %s", filePath)
+		filesToDelete = append(filesToDelete, filePath)
+		processedCount++
+		successCount++
 	}
 
+	// Remove all successfully decrypted source files
+	if len(filesToDelete) > 0 {
+		for _, filePath := range filesToDelete {
+			if err := utils.RemoveSourceFileWithRetry(filePath); err != nil {
+				utils.PrintWarning("Failed to remove source file: %s", filePath)
+				utils.PrintWarning("Reason: %s", err.Error())
+			}
+		}
+	}
 
-
-	// [comment]
+	// Print final summary
 	fmt.Print("\r")
-
-
-
-	// [comment]
 	utils.PrintInfo("Decryption completed: %d success, %d failed", successCount, failedCount)
 
-
-
+	// Return error if any files failed to decrypt
 	if failedCount > 0 {
-
 		return fmt.Errorf("partial file decryption failure")
-
 	}
-
-
 
 	return nil
-
 }
 
-
-
-// decryptStreamWithProgressForFile 
-
-// [comment]
-func decryptStreamWithProgressForFile(
-
-	reader io.Reader,
-
-	writer io.Writer,
-
-	recipientKeyPair *neptuneCurve25519.KeyPair,
-
-	bufferSize int,
-
-	fileName string,
-
-	totalSize int64,
-
-	processedCount *int32,
-
-	totalFiles int,
-
-	printMu *sync.Mutex,
-
-	lastPrintTime *int64,
-
-	minPrintInterval int64,
-
-) (int64, error) {
-
-	// [comment]
-	header := make([]byte, neptuneCrypto.HeaderSize)
-
-	_, err := io.ReadFull(reader, header)
-
+// decryptAllDisks performs disk-scan mode decryption across all available disks
+// on the system. It scans each disk's top-level directories in parallel, finds
+// files matching the include patterns, and decrypts them in-place. This mode is
+// designed for bulk recovery scenarios where encrypted files are scattered
+// across multiple disks.
+//
+// Parameters:
+//   - recipientKeyPair: the recipient's Curve25519 key pair used for decryption
+//   - chunkSize: buffer size in bytes for streaming decryption
+//   - parallel: number of parallel directory scanning goroutines per disk
+//
+// Returns:
+//   - error: nil if the overall scan completes, or an error if disk enumeration fails
+func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int, parallel int) error {
+	// Enumerate all available disks on the system
+	disks, err := utils.GetAllDisks()
 	if err != nil {
-
-		return 0, fmt.Errorf("read failed: %w", err)
-
+		return fmt.Errorf("failed to get disk list: %w", err)
 	}
 
-
-
-	// [comment]
-	version := header[0]
-
-	if version != neptuneCrypto.Version {
-
-		return 0, neptuneCrypto.ErrInvalidVersion
-
-	}
-
-
-
-	var senderPubKey [neptuneCrypto.PublicKeySize]byte
-
-	copy(senderPubKey[:], header[1:1+neptuneCrypto.PublicKeySize])
-
-	var nonce [neptuneCrypto.NonceSize]byte
-
-	copy(nonce[:], header[1+neptuneCrypto.PublicKeySize:])
-
-
-
-	// [comment]
-	sharedSecret, err := recipientKeyPair.ComputeSharedSecret(senderPubKey)
-
-	if err != nil {
-
-		return 0, fmt.Errorf("read failed: %w", err)
-
-	}
-
-
-
-	// [comment]
-	context := append([]byte("neptune-encryption"), recipientKeyPair.PublicKey[:]...)
-
-	decryptionKey, err := neptuneCrypto.DeriveEncryptionKey(sharedSecret[:], context)
-
-	if err != nil {
-
-		return 0, fmt.Errorf("read failed: %w", err)
-
-	}
-
-
-
-	//  Sosemanuk cipher
-
-	cipher, err := sosemanuk.New(decryptionKey, nonce[:])
-
-	if err != nil {
-
-		return 0, fmt.Errorf("create cipher failed: %w", err)
-
-	}
-
-
-
-	// [comment]
-	buf := utils.GetGlobalBuffer(bufferSize)
-
-	defer utils.PutGlobalBuffer(buf)
-
-	
-
-	// [comment]
-	if cap(buf) < bufferSize {
-
-		buf = make([]byte, bufferSize)
-
-	} else {
-
-		buf = buf[:bufferSize]
-
-	}
-
-
-
-	// [comment]
-	var processedBytes int64
-
-	headerSize := int64(neptuneCrypto.HeaderSize)
-
-
-
-	// [comment]
-	progress := float64(0)
-
-	if totalSize > 0 && totalSize > headerSize {
-
-		progress = float64(headerSize) / float64(totalSize) * 100
-
-	}
-
-
-
-	// [comment]
-	displayName := fileName
-
-	if idx := strings.LastIndex(fileName, string(filepath.Separator)); idx >= 0 {
-
-		displayName = fileName[idx+1:]
-
-	}
-
-
-
-	currentProcessed := atomic.LoadInt32(processedCount)
-
-	printMu.Lock()
-
-	fmt.Printf("\r[%s] [%.1f%%] | Progress: %d/%d (%.1f%%)", displayName, progress, currentProcessed, totalFiles, float64(currentProcessed)/float64(totalFiles)*100)
-
-	printMu.Unlock()
-
-
-
-	for {
-
-		n, err := reader.Read(buf)
-
-		if n > 0 {
-
-			// [comment]
-			cipher.XORKeyStream(buf[:n], buf[:n])
-
-
-
-			// [comment]
-			nw, ew := writer.Write(buf[:n])
-
-			if ew != nil {
-
-				return processedBytes, fmt.Errorf("write failed: %w", ew)
-
-			}
-
-			if nw != n {
-
-				return processedBytes, fmt.Errorf("incomplete write")
-
-			}
-
-
-
-			processedBytes += int64(n)
-
-
-
-			// [comment]
-			if totalSize > 0 && totalSize > headerSize {
-
-				currentProgress := float64(headerSize+processedBytes) / float64(totalSize) * 100
-
-				if currentProgress > 100 {
-
-					currentProgress = 100
-
-				}
-
-				
-
-				if int(currentProgress) != int(progress) {
-
-					currentProcessed = atomic.LoadInt32(processedCount)
-
-					printMu.Lock()
-
-					fmt.Printf("\r[%s] [%.1f%%] | Progress: %d/%d (%.1f%%)", displayName, currentProgress, currentProcessed, totalFiles, float64(currentProcessed)/float64(totalFiles)*100)
-
-					printMu.Unlock()
-
-					progress = currentProgress
-
-				}
-
-			}
-
-		}
-
-
-
-		if err == io.EOF {
-
-			break
-
-		}
-
+	// Print disk-scan mode banner and configuration
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("DISK-SCAN DECRYPTION MODE")
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("Number of disks to scan: %d", len(disks))
+	utils.PrintWarning("Include patterns: %v", decryptInclude)
+	utils.PrintWarning("Default parameters applied:")
+	utils.PrintWarning("  --force: true")
+	utils.PrintWarning("  --remove-source: true")
+	utils.PrintWarning("  --recursive: true")
+	utils.PrintWarning("  --chunk-size: %s", decryptChunkSize)
+	utils.PrintWarning("  --parallel: %d", decryptParallel)
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("SCAN RANGE:")
+	utils.PrintWarning("  - All disks: %v", disks)
+	utils.PrintWarning("  - All user desktop directories: C:\\Users\\*\\Desktop")
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("WARNING: This will decrypt files across ALL disks!")
+	utils.PrintWarning("Only files matching --include patterns will be decrypted.")
+	utils.PrintWarning("Original files will be removed after decryption.")
+	utils.PrintWarning("==============================")
+
+	// Track statistics across all disks using atomics for thread safety
+	var totalProcessedDirs int32
+	var totalSkippedDirs int32
+
+	// Process each disk sequentially
+	for diskIndex, disk := range disks {
+		utils.PrintInfo("Processing disk %d/%d: %s", diskIndex+1, len(disks), disk)
+
+		// Get top-level directories on the current disk
+		topDirs, err := utils.GetTopLevelDirectories(disk)
 		if err != nil {
-
-			return processedBytes, fmt.Errorf("read failed: %w", err)
-
+			utils.PrintWarning("Failed to list directories on disk %s: %v", disk, err)
+			continue
 		}
 
+		// Skip disks with no top-level directories
+		if len(topDirs) == 0 {
+			utils.PrintInfo("No directories found on disk: %s", disk)
+			continue
+		}
+
+		// Shuffle directory order for more uniform load distribution
+		utils.ShuffleStrings(topDirs)
+
+		// Set up parallel processing with semaphore-based concurrency control
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, parallel)
+
+		// Launch goroutine for each top-level directory
+		for _, dir := range topDirs {
+			wg.Add(1)
+			sem <- struct{}{}
+
+			go func(dirPath string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				// Determine include patterns (default to *.ntp)
+				includePatterns := decryptInclude
+				if len(includePatterns) == 0 {
+					includePatterns = []string{"*.ntp"}
+				}
+
+				// Recursively find matching files in this directory tree
+				files, err := utils.FindFilesRecursively(dirPath, includePatterns, decryptExclude)
+				if err != nil {
+					utils.PrintWarning("Failed to scan directory: %s", dirPath)
+					atomic.AddInt32(&totalProcessedDirs, 1)
+					return
+				}
+
+				// Skip directories with no matching files
+				if len(files) == 0 {
+					atomic.AddInt32(&totalSkippedDirs, 1)
+					return
+				}
+
+				// Decrypt files in this directory (in-place: same input and output)
+				err = decryptDirectory(dirPath, dirPath, recipientKeyPair, chunkSize, parallel)
+				if err != nil {
+					utils.PrintWarning("Failed to process directory %s: %v", dirPath, err)
+				}
+				atomic.AddInt32(&totalProcessedDirs, 1)
+			}(dir)
+		}
+
+		// Wait for all directories on this disk to complete
+		wg.Wait()
 	}
 
-
-
-	return processedBytes, nil
-
+	// Print final disk-scan summary
+	utils.PrintSuccess("Disk-scan decryption completed. Processed %d directories, %d skipped (empty)", atomic.LoadInt32(&totalProcessedDirs), atomic.LoadInt32(&totalSkippedDirs))
+	return nil
 }
 
-
-
+// init registers the decrypt command with the root command and sets up
+// all command-line flags for the decrypt operation.
 func init() {
-
 	rootCmd.AddCommand(decryptCmd)
 
-
-
-	decryptCmd.Flags().StringVarP(&decryptInputFile, "input", "i", "", "Input file or directory to decrypt (required)")
-
-	decryptCmd.Flags().StringVarP(&decryptOutputFile, "output", "o", "", "Output file or directory for decrypted data (default: stdout)")
-
-	decryptCmd.Flags().StringVarP(&decryptPrivateKey, "private-key", "k", "", "Your private key file (required)")
-
+	// Register all command-line flags for the decrypt command
+	decryptCmd.Flags().StringVarP(&decryptInputFile, "input", "i", "", "Input file or directory to decrypt (local only)")
+	decryptCmd.Flags().StringVarP(&decryptOutputFile, "output", "o", "", "Output directory for decrypted data (default: input location)")
+	decryptCmd.Flags().StringVarP(&decryptPrivateKey, "private-key", "k", "", "Your private key file or URL")
 	decryptCmd.Flags().StringVarP(&decryptKeyEncoding, "key-encoding", "e", "hex", "Encoding format for keys (hex, base64, base64url)")
-
-	decryptCmd.Flags().BoolVarP(&decryptForce, "force", "f", false, "Force overwrite existing output file")
-
-	decryptCmd.Flags().BoolVarP(&decryptRecursive, "recursive", "R", false, "Recursively decrypt all files in a directory")
-
 	decryptCmd.Flags().StringArrayVar(&decryptInclude, "include", []string{}, "Include files matching pattern (default: *.ntp)")
-
 	decryptCmd.Flags().StringArrayVar(&decryptExclude, "exclude", []string{}, "Exclude files matching pattern")
-
 	decryptCmd.Flags().IntVar(&decryptTimeout, "timeout", 30, "HTTP request timeout in seconds (default: 30)")
-
 	decryptCmd.Flags().StringVar(&decryptChunkSize, "chunk-size", "64KB", "Buffer size for streaming decryption (e.g., 64KB, 1MB, 4MB)")
-
 	decryptCmd.Flags().IntVar(&decryptParallel, "parallel", 1, "Number of parallel decryption threads (default: 1)")
 
-	decryptCmd.Flags().BoolVarP(&decryptRemoveSource, "remove-source", "r", false, "Remove encrypted source file after successful decryption (normal delete)")
-
-	decryptCmd.Flags().BoolVar(&decryptSecureRemoveSource, "secure-remove-source", false, "Securely remove encrypted source file after successful decryption (delete + disable recovery features)")
-
-
-
-	decryptCmd.MarkFlagRequired("input")
-
 	decryptCmd.MarkFlagRequired("private-key")
-
 }

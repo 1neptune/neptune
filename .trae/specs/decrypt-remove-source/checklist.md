@@ -1,8 +1,8 @@
 # Checklist
 
-- [ ] decrypt 命令支持 --remove-source 参数
-- [ ] decryptSingleFile 解密成功后删除源文件
-- [ ] decryptDirectory 并行解密成功后删除源文件
-- [ ] Windows 平台下先关闭文件再删除（避免文件锁定）
-- [ ] README.md 包含 --remove-source 参数说明
-- [ ] 编译测试通过
+- [ ] decrypt command supports --remove-source parameter
+- [ ] decryptSingleFile deletes source file after successful decryption
+- [ ] decryptDirectory deletes source files after successful parallel decryption
+- [ ] On Windows platform, files are closed before deletion (avoiding file locking)
+- [ ] README.md includes --remove-source parameter documentation
+- [ ] Compilation and tests pass

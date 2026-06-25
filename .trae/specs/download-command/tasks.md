@@ -1,40 +1,40 @@
-# Neptune - 独立下载命令 - 任务列表
+# Neptune - Standalone Download Command - Task List
 
-## [x] Task 1: 创建 download.go 命令文件
+## [x] Task 1: Create download.go command file
 - **Priority**: P0
 - **Depends On**: None
 - **Description**: 
-  - 创建新的 download 命令
-  - 支持 `--remote-url` 和 `--output` 参数
-  - 支持批量下载多个 URL
+  - Create new download command
+  - Support `--remote-url` and `--output` parameters
+  - Support batch download of multiple URLs
 - **Acceptance Criteria Addressed**: AC-1, AC-2
 - **Test Requirements**:
-  - `programmatic` TR-1.1: download 命令可以下载单个文件
-  - `programmatic` TR-1.2: download 命令可以批量下载多个文件
+  - `programmatic` TR-1.1: download command can download single file
+  - `programmatic` TR-1.2: download command can batch download multiple files
 
-## [x] Task 2: 从 encrypt.go 中移除 --remote-url 参数
+## [x] Task 2: Remove --remote-url parameter from encrypt.go
 - **Priority**: P0
 - **Depends On**: Task 1
 - **Description**: 
-  - 移除 encrypt 命令中的 `--remote-url` 参数
-  - 更新 encrypt 命令的帮助文档
+  - Remove `--remote-url` parameter from encrypt command
+  - Update encrypt command help documentation
 - **Acceptance Criteria Addressed**: FR-4
 - **Test Requirements**:
-  - `programmatic` TR-2.1: encrypt 命令不再支持 --remote-url 参数
+  - `programmatic` TR-2.1: encrypt command no longer supports --remote-url parameter
 
-## [x] Task 3: 更新 README.md 文档
+## [x] Task 3: Update README.md documentation
 - **Priority**: P1
 - **Depends On**: Task 1
-- **Description**: 更新 README.md 添加 download 命令说明
+- **Description**: Update README.md to add download command documentation
 - **Acceptance Criteria Addressed**: AC-1, AC-2
 - **Test Requirements**:
-  - `human-judgment` TR-3.1: 文档清晰说明 download 命令用法
+  - `human-judgment` TR-3.1: Documentation clearly explains download command usage
 
-## [x] Task 4: 编译测试
+## [x] Task 4: Compilation and Testing
 - **Priority**: P1
 - **Depends On**: Task 1, Task 2
-- **Description**: 编译 Windows 和 Linux 版本并测试功能
+- **Description**: Compile Windows and Linux versions and test functionality
 - **Acceptance Criteria Addressed**: AC-1, AC-2
 - **Test Requirements**:
-  - `programmatic` TR-4.1: 编译成功 ✅
-  - `programmatic` TR-4.2: download 命令正常工作
+  - `programmatic` TR-4.1: Compilation successful ✅
+  - `programmatic` TR-4.2: download command works correctly

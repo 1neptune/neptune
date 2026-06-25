@@ -1,229 +1,119 @@
-package utils
-
-import (
-"bytes"
-"io"
-"os/exec"
-"runtime"
-"sync"
-
-"golang.org/x/text/encoding/simplifiedchinese"
-"golang.org/x/text/transform"
-)
-
-var (
-	memoryCleanupMu  sync.Mutex
-	secureDeleteOnce sync.Once
+// Package utils provides common utility functions and types for the Neptune encryption tool.
+// This package includes error handling, secure memory management, disk utilities,
+// and other shared functionality used across the Neptune codebase.
+package utils
 
-	secureDeletePlatform      func(filePath string, isAdmin bool)
-	secureDeleteSystemPlatform func(volume string, isAdmin bool)
-	disableCoreDumpPlatform   func()
-	isAdminPlatform           func() bool
-)
-
-type OSType int
-
-const (
-OSUnknown OSType = iota
-OSWindows
-OSLinux
-OSMacOS
-)
-
-func GetOS() OSType {
-switch runtime.GOOS {
-case "windows":
-return OSWindows
-case "linux":
-return OSLinux
-case "darwin":
-return OSMacOS
-default:
-return OSUnknown
-}
-}
-
-func IsAdmin() bool {
-if isAdminPlatform != nil {
-return isAdminPlatform()
-}
-return false
-}
-
-func SecureDeleteFiles(files []string) {
-	isAdmin := IsAdmin()
+import (
+	"runtime"
+	"sync"
+)
 
-	if !isAdmin {
-		PrintInfo("[Security] Secure delete skipped: requires Admin/Root privileges")
+// memoryCleanupMu is a mutex that protects all secure memory wipe operations.
+// It ensures that concurrent secure wipe operations do not interfere with each
+// other, and that memory is properly zeroed before being garbage collected.
+var memoryCleanupMu sync.Mutex
+
+// SecureZeroMemory securely overwrites a byte slice with zeros to prevent
+// sensitive data from remaining in memory. This function is designed to
+// securely erase cryptographic keys, passwords, and other sensitive data
+// from memory after use, reducing the risk of data leakage through memory
+// dumps or cold boot attacks.
+//
+// The function acquires a global mutex to prevent concurrent secure wipe
+// operations and triggers a garbage collection cycle after zeroing to
+// help ensure the memory is reclaimed.
+//
+// Parameters:
+//   - data: The byte slice to zero out. If the slice is empty (len == 0),
+//           the function returns immediately with no action taken.
+func SecureZeroMemory(data []byte) {
+	memoryCleanupMu.Lock()
+	defer memoryCleanupMu.Unlock()
+
+	// Early return for empty slices to avoid unnecessary work
+	if len(data) == 0 {
 		return
 	}
 
-	PrintInfo("[Security] Starting secure delete operation...")
+	// Overwrite every byte in the slice with zero to erase sensitive data
+	for i := range data {
+		data[i] = 0
+	}
 
-	osType := GetOS()
-	osName := map[OSType]string{
-		OSWindows: "Windows",
-		OSLinux:   "Linux",
-		OSMacOS:   "macOS",
-		OSUnknown: "Unknown",
-	}[osType]
-	PrintInfo("[Security] Operating system: %s", osName)
-	PrintInfo("[Security] Permission check: Admin/Root")
+	// Trigger garbage collection to help reclaim the zeroed memory
+	runtime.GC()
+}
 
-	var volume string
-	if len(files) > 0 {
-		volume = getVolumeFromPath(files[0])
-		PrintInfo("[Security] Target volume: %s", volume)
+// SecureWipeString securely wipes the contents of a string from memory.
+// Since Go strings are immutable, this function converts the string to a
+// rune slice, overwrites each rune with zero, then sets the original
+// string pointer to an empty string. This helps prevent sensitive string
+// data (such as passwords or passphrases) from lingering in memory.
+//
+// The function acquires a global mutex to prevent concurrent secure wipe
+// operations and triggers a garbage collection cycle after wiping.
+//
+// Parameters:
+//   - s: A pointer to the string to wipe. If s is nil or the string is
+//        already empty, the function returns immediately with no action.
+func SecureWipeString(s *string) {
+	if s == nil || *s == "" {
+		return
+	}
 
-		if secureDeletePlatform != nil {
-			secureDeletePlatform(files[0], isAdmin)
-		} else {
-			PrintWarning("[Security] Unsupported operating system, skipping secure delete")
+	memoryCleanupMu.Lock()
+	defer memoryCleanupMu.Unlock()
+
+	// Convert string to mutable rune slice for in-place modification
+	runes := []rune(*s)
+	// Overwrite each rune with zero to erase the string data
+	for i := range runes {
+		runes[i] = 0
+	}
+	// Replace the original string with an empty string
+	*s = ""
+
+	// Trigger garbage collection to help reclaim the wiped memory
+	runtime.GC()
+}
+
+// SecureWipeSlice securely wipes sensitive data from a slice of any
+// supported type. It uses a type switch to handle different slice types:
+//
+//   - []byte:       Overwrites each byte with zero directly.
+//   - []string:     Securely wipes each string element using SecureWipeString.
+//   - []interface{}: Recursively wipes each element using SecureWipeSlice.
+//
+// The function acquires a global mutex to prevent concurrent secure wipe
+// operations and triggers a garbage collection cycle after wiping.
+//
+// Parameters:
+//   - slice: The slice to wipe, passed as an empty interface. The function
+//            handles the type assertion internally. If the type is not one
+//            of the supported slice types, the function does nothing.
+func SecureWipeSlice(slice interface{}) {
+	memoryCleanupMu.Lock()
+	defer memoryCleanupMu.Unlock()
+
+	// Type switch to handle different slice types appropriately
+	switch v := slice.(type) {
+	case []byte:
+		// Direct byte slice: zero out each byte
+		for i := range v {
+			v[i] = 0
+		}
+	case []string:
+		// String slice: securely wipe each individual string
+		for i := range v {
+			SecureWipeString(&v[i])
+		}
+	case []interface{}:
+		// Interface slice: recursively wipe each element
+		for i := range v {
+			SecureWipeSlice(v[i])
 		}
 	}
 
-	SecureDeleteSystem(volume)
-}
-
-func SecureDeleteSystem(volume string) {
-	secureDeleteOnce.Do(func() {
-		PrintInfo("[Security] Executing system-level secure delete...")
-
-		isAdmin := IsAdmin()
-
-		if secureDeleteSystemPlatform != nil {
-			secureDeleteSystemPlatform(volume, isAdmin)
-		}
-
-		DisableCoreDump()
-	})
-}
-
-func DisableCoreDump() {
-PrintInfo("[Security] Disabling core dump...")
-
-if disableCoreDumpPlatform != nil {
-disableCoreDumpPlatform()
-} else {
-PrintInfo("[Security] Core dump disabling not supported on this platform")
-}
-}
-
-func SecureZeroMemory(data []byte) {
-memoryCleanupMu.Lock()
-defer memoryCleanupMu.Unlock()
-
-if len(data) == 0 {
-return
-}
-
-for i := range data {
-data[i] = 0
-}
-
-runtime.GC()
-}
-
-func SecureWipeString(s *string) {
-if s == nil || *s == "" {
-return
-}
-
-memoryCleanupMu.Lock()
-defer memoryCleanupMu.Unlock()
-
-runes := []rune(*s)
-for i := range runes {
-runes[i] = 0
-}
-*s = ""
-
-runtime.GC()
-}
-
-func SecureWipeSlice(slice interface{}) {
-memoryCleanupMu.Lock()
-defer memoryCleanupMu.Unlock()
-
-switch v := slice.(type) {
-case []byte:
-for i := range v {
-v[i] = 0
-}
-case []string:
-for i := range v {
-SecureWipeString(&v[i])
-}
-case []interface{}:
-for i := range v {
-SecureWipeSlice(v[i])
-}
-}
-
-runtime.GC()
-}
-
-func executeCommand(description, cmd string, args []string) (string, error) {
-PrintInfo("[Command] Executing: %s", description)
-PrintInfo("[Command] Command: %s %v", cmd, args)
-
-var output []byte
-var err error
-
-command := exec.Command(cmd, args...)
-var stdout, stderr bytes.Buffer
-command.Stdout = &stdout
-command.Stderr = &stderr
-
-err = command.Run()
-output = stdout.Bytes()
-if len(output) == 0 {
-output = stderr.Bytes()
-}
-
-var outputStr string
-if runtime.GOOS == "windows" {
-outputStr = gbkToUtf8(string(output))
-} else {
-outputStr = string(output)
-}
-
-if err != nil {
-PrintWarning("[Command] %s failed: %v", description, err)
-if len(outputStr) > 0 {
-PrintInfo("[Command] Output: %s", outputStr)
-}
-} else {
-PrintSuccess("[Command] %s succeeded", description)
-if len(outputStr) > 0 {
-PrintInfo("[Command] Output: %s", outputStr)
-}
-}
-
-if len(output) > 0 {
-SecureZeroMemory(output)
-}
-
-return outputStr, err
-}
-
-func gbkToUtf8(s string) string {
-reader := transform.NewReader(bytes.NewReader([]byte(s)), simplifiedchinese.GBK.NewDecoder())
-decoded, err := io.ReadAll(reader)
-if err != nil {
-return s
-}
-return string(decoded)
-}
-
-func getVolumeFromPath(filePath string) string {
-switch runtime.GOOS {
-case "windows":
-if len(filePath) >= 2 && filePath[1] == ':' {
-return filePath[:2]
-}
-return "C:"
-default:
-return "/"
-}
-}
+	// Trigger garbage collection to help reclaim the wiped memory
+	runtime.GC()
+}

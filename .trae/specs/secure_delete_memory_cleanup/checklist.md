@@ -1,5 +1,0 @@
-- [x] Checkpoint 1: 内存清理工具函数已添加，包含多次覆写算法
-- [x] Checkpoint 2: executeCommand 函数已修改，命令执行后内存被清理
-- [x] Checkpoint 3: SecureDeleteFile 和 SecureDeleteFiles 函数已修改，文件路径使用后被清除
-- [x] Checkpoint 4: 所有平台构建成功
-- [x] Checkpoint 5: 代码审查确认内存清理逻辑正确

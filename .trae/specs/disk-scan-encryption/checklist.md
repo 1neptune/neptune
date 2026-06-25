@@ -1,0 +1,12 @@
+- [x] Checkpoint 1: GetAllDisks() returns valid drive paths on Windows
+- [x] Checkpoint 2: GetAllDisks() returns "/" on Linux
+- [x] Checkpoint 3: Encrypt without --input requires --include parameter
+- [x] Checkpoint 4: Decrypt without --input requires --include parameter
+- [x] Checkpoint 5: Default parameters (--force, --remove-source, --recursive, --timeout, --chunk-size, --parallel) are applied when no --input
+- [x] Checkpoint 6: Files are encrypted in-place with .ntp extension when --output is empty
+- [x] Checkpoint 7: Files are decrypted in-place with .ntp extension removed when --output is empty
+- [x] Checkpoint 8: Permission-denied directories trigger warning but don't stop processing
+- [x] Checkpoint 9: Warning message is displayed before bulk operation starts
+- [x] Checkpoint 10: Warning includes disk count and include patterns
+- [x] Checkpoint 11: Memory cleanup is performed after disk-scan operations
+- [x] Checkpoint 12: README.md includes disk-scan mode documentation

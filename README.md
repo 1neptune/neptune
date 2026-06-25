@@ -1,566 +1,391 @@
 # Neptune
 
-A secure, cross-platform file encryption tool using Curve25519 key exchange and Sosemanuk stream cipher.
+A secure cross-platform file encryption tool using Curve25519 key exchange and Sosemanuk stream cipher.
+
+**Version**: v1.2.18 (Build Date: 2026-06-25)
 
 ## Features
 
-- **Secure Encryption**: Curve25519 (ECDH) + Sosemanuk stream cipher + HKDF-SHA256 key derivation
-- **Streaming Processing**: Memory-efficient streaming encryption/decryption for large files
-- **Directory Support**: Recursive encryption/decryption with file filtering
-- **Parallel Processing**: Multi-threaded processing for batch operations
-- **Remote Key Loading**: Load encryption keys from HTTP/HTTPS URLs
-- **Memory Security**: Automatic memory cleanup for sensitive data (keys, URLs, encryption data)
-- **Secure Deletion**: System-level secure file deletion with recovery prevention
-- **Cross-Platform**: Windows, Linux, macOS support
+- **Cross-Platform**: Windows, Linux
+- **Authenticated Encryption**: Curve25519 ECDH key exchange + Sosemanuk stream cipher
+- **Streaming Processing**: Memory-efficient encryption/decryption for files of any size
+- **Directory Support**: Recursive encryption/decryption with file pattern filtering
+- **Parallel Processing**: Multi-threaded batch processing for directories
+- **Remote Keys**: Load keys from HTTP/HTTPS URLs with automatic memory cleanup
+- **Memory Security**: Automatic zeroing of sensitive data (keys, nonces, shared secrets)
+- **Disk-Scan Mode**: Encrypt/decrypt files across all disks without specifying input path
+- **Recycle Bin Exclusion**: Automatically skips recycle bin directories on Windows
+- **Duplicate Encryption Detection**: Skips already-encrypted files (.ntp)
+- **Auto Remove Source**: Original files are always removed after successful encryption/decryption
+- **File Download**: Download files from remote URLs with memory cleanup
 
----
+## Encryption Algorithm
 
-## Installation
+Neptune uses **authenticated encryption** with Curve25519 key exchange and Sosemanuk stream cipher:
 
-### Download Pre-built Binaries
+1. **Key Exchange**: ECDH using Curve25519 to derive a shared secret
+2. **Key Derivation**: HKDF-SHA256 to derive encryption key from shared secret
+3. **Stream Cipher**: Sosemanuk for fast stream encryption
+4. **Nonce**: 16-byte random nonce for each encryption
 
-Download from [GitHub Releases](https://github.com/1neptune/neptune/releases):
-
-| Platform | Architecture | File |
-|----------|--------------|------|
-| Windows | x64 | `neptune-windows.exe` |
-| Linux | x64 | `neptune-linux-amd64` |
-| macOS | Intel | `neptune-darwin-amd64` |
-| macOS | Apple Silicon | `neptune-darwin-arm64` |
-
-### Build from Source
-
-```bash
-# Clone repository
-git clone https://github.com/1neptune/neptune.git
-cd neptune
-
-# Build
-go build -o neptune ./cmd/neptune
-
-# Or build for specific platform
-GOOS=linux GOARCH=amd64 go build -o neptune-linux ./cmd/neptune
-GOOS=darwin GOARCH=arm64 go build -o neptune-macos ./cmd/neptune
+**Encrypted File Format**:
+```
+[Version: 1 byte][Sender Public Key: 32 bytes][Nonce: 16 bytes][Ciphertext: N bytes]
 ```
 
----
+**File Extension**: `.ntp`
 
-## Quick Start
+## Why Both Private and Public Keys for Encryption?
 
-### 1. Generate Key Pair
+Neptune uses **authenticated encryption** with dual-key approach:
+
+1. **Your Private Key**: Proves you are the sender. The encrypted file embeds your public key, allowing the recipient to verify who encrypted it.
+2. **Recipient's Public Key**: Ensures only the recipient can decrypt. The shared secret is derived from your private key and their public key.
+
+This provides authentication, confidentiality, and non-repudiation.
+
+## Commands
+
+### version
+
+Display version and build information.
 
 ```bash
-# Generate key pair (default: hex encoding, current directory)
-neptune keygen
-
-# Generate with custom name
-neptune keygen --name mykey --output ./keys
-
-# Generate with base64 encoding
-neptune keygen --encoding base64
+neptune version
 ```
 
 **Output**:
 ```
-[SUCCESS] Key pair generated successfully
-[INFO] Private key saved to: neptune_private.key
-[INFO] Public key saved to: neptune_public.key
-[INFO] Encoding format: hex
-
-Public key (for sharing):
-a1b2c3d4e5f6...
-[WARNING] Keep your private key secure!
-```
-
-### 2. Encrypt a File
-
-```bash
-# Encrypt single file
-neptune encrypt --input secret.txt --output secret.ntp \
-  --public-key recipient_public.key --private-key my_private.key
-
-# Encrypt text directly
-neptune encrypt --text "secret message" \
-  --public-key recipient_public.key --private-key my_private.key
-
-# Encrypt with remote keys
-neptune encrypt --input data.txt --output data.ntp \
-  --public-key https://example.com/recipient.key \
-  --private-key https://example.com/my.key
-```
-
-### 3. Decrypt a File
-
-```bash
-# Decrypt single file
-neptune decrypt --input secret.ntp --output secret.txt \
-  --private-key my_private.key
-
-# Decrypt to stdout
-neptune decrypt --input secret.ntp --private-key my_private.key
-
-# Decrypt with remote key
-neptune decrypt --input data.ntp --output data.txt \
-  --private-key https://example.com/my.key
+Neptune Encryption Tool
+Version:    v1.2.18
+Build Date: 2026-06-25
+Algorithm:  Curve25519 + Sosemanuk
 ```
 
 ---
 
-## Use Cases
+### keygen
 
-### Use Case 1: Secure File Transfer
+Generate a Curve25519 key pair.
 
-**Scenario**: Send encrypted files to a colleague via email/cloud storage.
-
-**Workflow**:
-```bash
-# Step 1: Generate your key pair
-neptune keygen --name alice --output ./keys
-
-# Step 2: Share your public key with colleague (via email)
-# Send: keys/alice_public.key
-
-# Step 3: Receive colleague's public key (bob_public.key)
-
-# Step 4: Encrypt file for colleague
-neptune encrypt --input report.pdf --output report.pdf.ntp \
-  --public-key bob_public.key --private-key alice_private.key
-
-# Step 5: Send encrypted file (report.pdf.ntp) to colleague
-
-# Colleague decrypts with their private key:
-neptune decrypt --input report.pdf.ntp --output report.pdf \
-  --private-key bob_private.key
-```
-
-### Use Case 2: Secure Backup with Key Server
-
-**Scenario**: Encrypt files using keys stored on a secure key server.
-
-**Workflow**:
-```bash
-# Encrypt directory using keys from key server
-neptune encrypt --input ./documents --output ./encrypted \
-  --public-key https://keyserver.example.com/public.key \
-  --private-key https://keyserver.example.com/private.key \
-  --recursive --parallel 4
-
-# Decrypt later using same keys
-neptune decrypt --input ./encrypted --output ./documents \
-  --private-key https://keyserver.example.com/private.key \
-  --recursive --parallel 4
-```
-
-### Use Case 3: Secure File Deletion
-
-**Scenario**: Encrypt sensitive files and securely delete originals to prevent recovery.
-
-**Workflow**:
-```bash
-# Encrypt and securely delete source (requires Admin/Root)
-neptune encrypt --input sensitive_data/ --output encrypted/ \
-  --public-key recipient.key --private-key my.key \
-  --recursive --secure-remove-source
-
-# Decrypt and securely delete encrypted files
-neptune decrypt --input encrypted/ --output decrypted/ \
-  --private-key my.key \
-  --recursive --secure-remove-source
-```
-
-### Use Case 4: Batch Directory Encryption
-
-**Scenario**: Encrypt specific file types in a large directory.
-
-**Workflow**:
-```bash
-# Encrypt only PDF and DOCX files
-neptune encrypt --input ./documents --output ./encrypted \
-  --public-key recipient.key --private-key my.key \
-  --recursive --include "*.pdf" --include "*.docx" \
-  --parallel 8 --chunk-size 1MB
-
-# Decrypt all .ntp files
-neptune decrypt --input ./encrypted --output ./decrypted \
-  --private-key my.key \
-  --recursive --include "*.ntp" \
-  --parallel 8
-```
-
----
-
-## Technical Flow
-
-### Encryption Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      ENCRYPTION PROCESS                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. Load Keys                                                   │
-│     ├─ Load sender's private key (authentication)              │
-│     ├─ Load recipient's public key (encryption)                 │
-│     └─ [Memory cleanup: clear downloaded key data & URLs]       │
-│                                                                 │
-│  2. Compute Shared Secret (ECDH)                                │
-│     ├─ sharedSecret = Curve25519(privateKey, recipientPubKey)  │
-│     └─ Derives 32-byte shared secret                           │
-│                                                                 │
-│  3. Derive Encryption Key (HKDF-SHA256)                         │
-│     ├─ context = "neptune-encryption" + recipientPubKey        │
-│     ├─ encryptionKey = HKDF-SHA256(sharedSecret, context)      │
-│     └─ Derives 32-byte encryption key                          │
-│                                                                 │
-│  4. Generate Nonce                                               │
-│     ├─ nonce = Random(16 bytes)                                 │
-│     └─ Used for Sosemanuk cipher initialization                │
-│                                                                 │
-│  5. Create Header                                                │
-│     ├─ Format: [Version:1][SenderPubKey:32][Nonce:16]          │
-│     └─ Total: 49 bytes                                          │
-│                                                                 │
-│  6. Stream Encryption (Sosemanuk)                               │
-│     ├─ cipher = Sosemanuk.New(encryptionKey, nonce)            │
-│     ├─ Read plaintext chunk → XOR → Write ciphertext           │
-│     └─ Progress: Encryption progress: XX.X%                    │
-│                                                                 │
-│  7. Memory Cleanup                                               │
-│     ├─ SecureZeroMemory(sharedSecret)                          │
-│     ├─ SecureZeroMemory(encryptionKey)                         │
-│     ├─ SecureZeroMemory(nonce)                                 │
-│     ├─ SecureZeroMemory(context)                               │
-│     └─ runtime.GC()                                             │
-│                                                                 │
-│  8. Output                                                       │
-│     ├─ Write encrypted file (.ntp)                              │
-│     └─ Optional: remove/secure-remove source file              │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Decryption Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      DECRYPTION PROCESS                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. Load Private Key                                            │
-│     ├─ Load recipient's private key                            │
-│     └─ [Memory cleanup: clear downloaded key data & URL]        │
-│                                                                 │
-│  2. Read Header                                                  │
-│     ├─ Read 49 bytes: [Version:1][SenderPubKey:32][Nonce:16]   │
-│     ├─ Validate version                                         │
-│     └─ Extract senderPubKey, nonce                             │
-│                                                                 │
-│  3. Compute Shared Secret (ECDH)                                │
-│     ├─ sharedSecret = Curve25519(privateKey, senderPubKey)     │
-│     └─ Same shared secret as encryption                        │
-│                                                                 │
-│  4. Derive Decryption Key (HKDF-SHA256)                         │
-│     ├─ context = "neptune-encryption" + recipientPubKey        │
-│     ├─ decryptionKey = HKDF-SHA256(sharedSecret, context)      │
-│     └─ Same key as encryption                                  │
-│                                                                 │
-│  5. Stream Decryption (Sosemanuk)                               │
-│     ├─ cipher = Sosemanuk.New(decryptionKey, nonce)            │
-│     ├─ Read ciphertext chunk → XOR → Write plaintext           │
-│     └─ Progress: Decryption progress: XX.X%                    │
-│                                                                 │
-│  6. Memory Cleanup                                               │
-│     ├─ SecureZeroMemory(sharedSecret)                          │
-│     ├─ SecureZeroMemory(decryptionKey)                         │
-│     ├─ SecureZeroMemory(nonce)                                 │
-│     ├─ SecureZeroMemory(context)                               │
-│     ├─ SecureZeroMemory(senderPubKey)                          │
-│     ├─ SecureZeroMemory(header)                                │
-│     └─ runtime.GC()                                             │
-│                                                                 │
-│  7. Output                                                       │
-│     ├─ Write decrypted file                                     │
-│     └─ Optional: remove/secure-remove source file              │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Encrypted File Format
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    ENCRYPTED FILE FORMAT                     │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  Offset    Size    Field          Description                │
-│  ───────────────────────────────────────────────────────────│
-│  0         1       Version        Format version (0x01)      │
-│  1         32      SenderPubKey   Sender's Curve25519 pubkey │
-│  33        16      Nonce          Random nonce for cipher    │
-│  49        N       Ciphertext     Encrypted data stream      │
-│                                                              │
-│  Total Header Size: 49 bytes                                 │
-│  File Extension: .ntp                                        │
-│                                                              │
-└──────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Command Reference
-
-### keygen - Generate Key Pair
-
-```bash
-neptune keygen [options]
-```
-
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--output` | `-o` | `.` | Output directory for key files |
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
 | `--encoding` | `-e` | `hex` | Key encoding format (hex, base64, base64url) |
 | `--name` | `-n` | `neptune` | Base name for key files |
+| `--output` | `-o` | `.` | Output directory for key files |
+
+**Generated Files**:
+- `<name>_private.key` - Your private key (keep secure)
+- `<name>_public.key` - Your public key (share with others)
 
 **Examples**:
 ```bash
-neptune keygen                                    # Default settings
-neptune keygen --name mykey --output ./keys       # Custom name and directory
-neptune keygen --encoding base64                  # Base64 encoding
+# Generate with default settings (hex, current directory)
+neptune keygen
+
+# Generate with base64 encoding
+neptune keygen --encoding base64
+
+# Generate with custom name and output directory
+neptune keygen --name alice --output ./keys
 ```
 
 ---
 
-### encrypt - Encrypt File/Directory
+### encrypt
 
-```bash
-neptune encrypt [options]
-```
+Encrypt a file or directory.
 
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--input` | `-i` | - | Input file or directory (required) |
-| `--output` | `-o` | stdout | Output file or directory |
-| `--text` | `-t` | - | Text to encrypt (alternative to --input) |
-| `--public-key` | `-p` | - | Recipient's public key file or URL (required) |
-| `--private-key` | `-k` | - | Sender's private key file or URL (required) |
-| `--key-encoding` | `-e` | `hex` | Key encoding format |
-| `--force` | `-f` | `false` | Force overwrite existing output file |
-| `--force-override` | - | `false` | Force encrypt already encrypted files |
-| `--remove-source` | `-r` | `false` | Remove source file after encryption |
-| `--secure-remove-source` | - | `false` | Secure delete source (disable recovery) |
-| `--recursive` | `-R` | `false` | Recursively process directory |
-| `--include` | - | - | Include files matching pattern |
-| `--exclude` | - | - | Exclude files matching pattern |
-| `--timeout` | - | `30` | HTTP request timeout (seconds) |
-| `--chunk-size` | - | `64KB` | Buffer size for streaming |
-| `--parallel` | - | `1` | Number of parallel threads (1-10) |
+**Required Flags**:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--public-key` | `-p` | Recipient's public key file or URL |
+| `--private-key` | `-k` | Your private key file or URL |
+
+**Optional Flags**:
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--input` | `-i` | *(required for single/directory mode)* | Input file or directory (local only) |
+| `--output` | `-o` | *(input location)* | Output directory for encrypted files |
+| `--key-encoding` | `-e` | `hex` | Key encoding format (hex, base64, base64url) |
+| `--include` | | `[]` | Include files matching pattern (multiple allowed) |
+| `--exclude` | | `[]` | Exclude files matching pattern (multiple allowed) |
+| `--chunk-size` | | `64KB` | Buffer size for streaming (e.g., 64KB, 1MB, 4MB) |
+| `--parallel` | | `1` | Number of parallel processes for directories (1-10) |
+| `--timeout` | | `30` | HTTP request timeout in seconds |
+
+**Auto-Enabled Behaviors** (always on):
+- **Force overwrite**: Existing output files are always overwritten
+- **Remove source**: Original files are always removed after successful encryption
+- **Recursive**: Directories are always processed recursively
+- **Skip encrypted**: Already-encrypted files (.ntp) are automatically skipped
+
+**Output Naming**: `document.pdf` → `document.pdf.ntp`
+
+**Disk-Scan Mode**:
+When `--input` is not specified, Neptune enters disk-scan mode:
+- Scans all disks except C:\ drive root
+- Scans all user desktops (C:\Users\*\Desktop)
+- Excludes recycle bin directories ($recycle.bin, recycler)
+- `--include` is required in this mode
+- Default `--chunk-size`: 4MB
+- Default `--parallel`: 8
 
 **Examples**:
 ```bash
-# Single file encryption
-neptune encrypt --input file.txt --output file.ntp \
-  --public-key recipient.key --private-key sender.key
+# Encrypt a single file
+neptune encrypt --input document.pdf --public-key recipient.key --private-key my.key
 
-# Directory encryption
-neptune encrypt --input ./docs --output ./encrypted \
-  --public-key recipient.key --private-key sender.key \
-  --recursive --parallel 4
+# Encrypt a file to different directory
+neptune encrypt --input document.pdf --output ./encrypted --public-key recipient.key --private-key my.key
 
-# Encrypt with file filtering
-neptune encrypt --input ./docs --output ./encrypted \
-  --public-key recipient.key --private-key sender.key \
-  --recursive --include "*.pdf" --exclude "*.tmp"
+# Encrypt a directory recursively
+neptune encrypt --input ./documents --public-key recipient.key --private-key my.key
 
-# Encrypt and delete source
-neptune encrypt --input secret.txt --output secret.ntp \
-  --public-key recipient.key --private-key sender.key \
-  --remove-source
+# Encrypt only PDF files in a directory
+neptune encrypt --input ./documents --include "*.pdf" --public-key recipient.key --private-key my.key
 
-# Encrypt with remote keys
-neptune encrypt --input data.txt --output data.ntp \
-  --public-key https://server.com/pub.key \
-  --private-key https://server.com/priv.key
+# Encrypt with multiple include patterns
+neptune encrypt --input ./data --include "*.pdf" --include "*.docx" --include "*.xlsx" --public-key recipient.key --private-key my.key
+
+# Encrypt with remote keys from HTTPS
+neptune encrypt --input data.txt --public-key https://keyserver.com/pub.key --private-key https://keyserver.com/priv.key
+
+# Encrypt with parallel processing (8 threads)
+neptune encrypt --input ./documents --parallel 8 --public-key recipient.key --private-key my.key
+
+# Encrypt with larger chunk size (4MB)
+neptune encrypt --input bigfile.iso --chunk-size 4MB --public-key recipient.key --private-key my.key
+
+# Disk-scan mode: encrypt all PDF files across all disks
+neptune encrypt --include "*.pdf" --public-key recipient.key --private-key my.key
 ```
 
 ---
 
-### decrypt - Decrypt File/Directory
+### decrypt
 
-```bash
-neptune decrypt [options]
-```
+Decrypt a file or directory.
 
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--input` | `-i` | - | Input file or directory (required) |
-| `--output` | `-o` | stdout | Output file or directory |
-| `--private-key` | `-k` | - | Private key file or URL (required) |
-| `--key-encoding` | `-e` | `hex` | Key encoding format |
-| `--force` | `-f` | `false` | Force overwrite existing output file |
-| `--remove-source` | `-r` | `false` | Remove source file after decryption |
-| `--secure-remove-source` | - | `false` | Secure delete source (disable recovery) |
-| `--recursive` | `-R` | `false` | Recursively process directory |
-| `--include` | - | `*.ntp` | Include files matching pattern |
-| `--exclude` | - | - | Exclude files matching pattern |
-| `--timeout` | - | `30` | HTTP request timeout (seconds) |
-| `--chunk-size` | - | `64KB` | Buffer size for streaming |
-| `--parallel` | - | `1` | Number of parallel threads (1-10) |
+**Required Flags**:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--private-key` | `-k` | Your private key file or URL |
+
+**Optional Flags**:
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--input` | `-i` | *(required for single/directory mode)* | Input file or directory (local only) |
+| `--output` | `-o` | *(input location)* | Output directory for decrypted files |
+| `--key-encoding` | `-e` | `hex` | Key encoding format (hex, base64, base64url) |
+| `--include` | | `["*.ntp"]` | Include files matching pattern (multiple allowed) |
+| `--exclude` | | `[]` | Exclude files matching pattern (multiple allowed) |
+| `--chunk-size` | | `64KB` | Buffer size for streaming (e.g., 64KB, 1MB, 4MB) |
+| `--parallel` | | `1` | Number of parallel processes for directories (1-10) |
+| `--timeout` | | `30` | HTTP request timeout in seconds |
+
+**Auto-Enabled Behaviors** (always on):
+- **Force overwrite**: Existing output files are always overwritten
+- **Remove source**: Encrypted source files are always removed after successful decryption
+- **Recursive**: Directories are always processed recursively
+- **Skip non-encrypted**: Non-.ntp files are automatically skipped
+
+**Output Naming**: `document.pdf.ntp` → `document.pdf`
+
+**Disk-Scan Mode**:
+When `--input` is not specified, Neptune enters disk-scan mode:
+- Scans all disks except C:\ drive root
+- Scans all user desktops (C:\Users\*\Desktop)
+- Excludes recycle bin directories ($recycle.bin, recycler)
+- `--include` is required in this mode
+- Default `--chunk-size`: 4MB
+- Default `--parallel`: 8
 
 **Examples**:
 ```bash
-# Single file decryption
-neptune decrypt --input file.ntp --output file.txt \
-  --private-key my.key
+# Decrypt a single file
+neptune decrypt --input document.pdf.ntp --private-key my.key
 
-# Directory decryption
-neptune decrypt --input ./encrypted --output ./decrypted \
-  --private-key my.key --recursive --parallel 4
+# Decrypt a file to different directory
+neptune decrypt --input document.pdf.ntp --output ./decrypted --private-key my.key
 
-# Decrypt to stdout
-neptune decrypt --input file.ntp --private-key my.key
+# Decrypt a directory recursively
+neptune decrypt --input ./encrypted --private-key my.key
 
-# Decrypt and delete source
-neptune decrypt --input secret.ntp --output secret.txt \
-  --private-key my.key --remove-source
+# Decrypt only .ntp files in a directory
+neptune decrypt --input ./files --include "*.ntp" --private-key my.key
 
-# Decrypt with remote key
-neptune decrypt --input data.ntp --output data.txt \
-  --private-key https://server.com/priv.key
+# Decrypt with remote key from HTTPS
+neptune decrypt --input data.ntp --private-key https://keyserver.com/priv.key
+
+# Decrypt with parallel processing (8 threads)
+neptune decrypt --input ./encrypted --parallel 8 --private-key my.key
+
+# Disk-scan mode: decrypt all .ntp files across all disks
+neptune decrypt --include "*.ntp" --private-key my.key
 ```
 
 ---
 
-### download - Download Remote Files
+### download
 
-```bash
-neptune download [options]
-```
+Download files from HTTP/HTTPS URLs.
 
-| Option | Short | Default | Description |
-|--------|-------|---------|-------------|
-| `--remote-url` | - | - | Remote URL to download (required, can be repeated) |
-| `--output` | `-o` | `.` | Output directory or file path |
-| `--timeout` | - | `30` | HTTP request timeout (seconds) |
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--remote-url` | | *(required)* | Remote URL to download (multiple allowed) |
+| `--output` | `-o` | *(current dir / URL filename)* | Output directory or file path |
+| `--timeout` | | `30` | HTTP request timeout in seconds |
+
+**Memory Security**: Downloaded data is automatically zeroed from memory after writing to disk.
 
 **Examples**:
 ```bash
-# Download single file
-neptune download --remote-url https://example.com/file.pdf \
-  --output ./downloads/
+# Download a single file to current directory
+neptune download --remote-url https://example.com/document.pdf
+
+# Download a file to specific directory
+neptune download --remote-url https://example.com/document.pdf --output ./downloads/
 
 # Download multiple files
-neptune download \
-  --remote-url https://example.com/file1.pdf \
-  --remote-url https://example.com/file2.txt \
-  --output ./downloads/
+neptune download --remote-url https://example.com/file1.pdf --remote-url https://example.com/file2.txt --output ./downloads/
+
+# Download and rename
+neptune download --remote-url https://example.com/document.pdf --output ./myfile.pdf
 ```
 
----
+## Real-World Scenarios
 
-## Security Features
+### Scenario 1: Secure File Transfer Between Users
 
-### Memory Cleanup
+Alice wants to send encrypted documents to Bob.
 
-Neptune automatically clears sensitive data from memory after operations:
+```bash
+# Alice generates her key pair
+neptune keygen --name alice --output ./keys
+# Creates: keys/alice_private.key, keys/alice_public.key
 
-| Operation | Cleared Data |
-|-----------|-------------|
-| **Encrypt** | Private key data, public key data, key URLs, shared secret, encryption key, nonce, context, sender public key |
-| **Decrypt** | Private key data, key URL, shared secret, decryption key, nonce, context, sender public key, header buffer |
-| **Download** | Downloaded data |
+# Bob generates his key pair
+neptune keygen --name bob --output ./keys
+# Creates: keys/bob_private.key, keys/bob_public.key
 
-**Cleanup Mechanism**:
-- `SecureZeroMemory()`: Overwrites byte slices with zeros
-- `SecureWipeString()`: Overwrites string content with zeros
-- `runtime.GC()`: Forces garbage collection after cleanup
-- Mutex locks ensure thread-safe cleanup
+# Alice encrypts the document for Bob (uses Bob's public key, her private key)
+neptune encrypt --input report.pdf --public-key keys/bob_public.key --private-key keys/alice_private.key
+# Creates: report.pdf.ntp (original report.pdf is removed)
 
-**Example Output**:
-```
-[INFO] Loading private key from remote to memory: https://server.com/key
-[INFO] [Memory] Clearing downloaded private key data (130 bytes)...
-[SUCCESS] [Memory] Private key data cleared from memory
-[INFO] [Memory] Clearing private key URL...
-[SUCCESS] [Memory] Private key URL cleared from memory
+# Bob decrypts the document (uses his private key)
+neptune decrypt --input report.pdf.ntp --private-key keys/bob_private.key
+# Creates: report.pdf (report.pdf.ntp is removed)
 ```
 
-### Secure Deletion
+### Scenario 2: Secure Backup with Remote Key Server
 
-`--secure-remove-source` performs system-level secure deletion:
+Store keys on a secure HTTPS server and encrypt local files.
 
-| Platform | Operations |
-|----------|------------|
-| **Windows** | Delete VSS shadow copies, disable WinRE, disable system restore, disable boot repair |
-| **Linux** | Clear LVM/btrfs/ZFS snapshots, disable core dumps |
-| **macOS** | Disable Time Machine backups, clear swap files |
+```bash
+# Encrypt local files using remote keys
+neptune encrypt --input ./daily_backup --output ./encrypted_backup \
+  --public-key https://keyserver.company.com/public.key \
+  --private-key https://keyserver.company.com/private.key
 
-**Requirements**: Admin/Root privileges required
-
-**Example Output**:
-```
-[INFO] [Security] Starting secure delete operation...
-[INFO] [Security] Operating system: Windows
-[INFO] [Security] Permission check: Admin/Root
-[INFO] [Security] Target volume: C:
-[INFO] [Windows] Deleting VSS snapshots for volume...
-[SUCCESS] [Windows] Successfully deleted VSS snapshots
-[INFO] [Windows] Disabling WinRE...
-[SUCCESS] [Windows] Successfully disabled WinRE
+# Decrypt when needed
+neptune decrypt --input ./encrypted_backup --output ./restored_backup \
+  --private-key https://keyserver.company.com/private.key
 ```
 
----
+### Scenario 3: Bulk Encryption Across All Disks
 
-## Cryptographic Specifications
+Encrypt all sensitive documents on the entire system.
 
-| Component | Algorithm | Key Size | Details |
-|-----------|-----------|----------|---------|
-| **Key Exchange** | Curve25519 (ECDH) | 32 bytes | Montgomery curve Diffie-Hellman |
-| **Key Derivation** | HKDF-SHA256 | 32 bytes | HMAC-based Key Derivation Function |
-| **Stream Cipher** | Sosemanuk | 32 bytes | High-speed stream cipher (eSTREAM) |
-| **Nonce** | Random | 16 bytes | Cryptographically secure random |
-| **Encoding** | Hex/Base64 | - | Key serialization format |
+```bash
+# Encrypt all PDF, DOCX, and XLSX files across all disks
+neptune encrypt \
+  --include "*.pdf" --include "*.docx" --include "*.xlsx" \
+  --public-key recipient.key --private-key my.key
 
----
+# Decrypt all encrypted files
+neptune decrypt --include "*.ntp" --private-key my.key
+```
 
-## Platform Support
+### Scenario 4: Encrypting a Large File with Streaming
 
-| Platform | Architecture | Binary | Secure Delete |
-|----------|--------------|--------|---------------|
-| Windows | x64 | `neptune-windows.exe` | VSS, WinRE, System Restore |
-| Linux | x64 | `neptune-linux-amd64` | LVM, btrfs, ZFS snapshots |
-| macOS | Intel | `neptune-darwin-amd64` | Time Machine, swap files |
-| macOS | ARM | `neptune-darwin-arm64` | Time Machine, swap files |
+Encrypt a very large file efficiently with streaming.
 
----
+```bash
+# Encrypt a large ISO file with 4MB chunk size
+neptune encrypt --input huge_backup.iso --chunk-size 4MB --public-key recipient.key --private-key my.key
+
+# Decrypt with same chunk size
+neptune decrypt --input huge_backup.iso.ntp --chunk-size 4MB --private-key my.key
+```
+
+### Scenario 5: Parallel Directory Encryption
+
+Speed up encryption of many files using parallel processing.
+
+```bash
+# Encrypt directory with 8 parallel threads
+neptune encrypt --input ./documents --parallel 8 --public-key recipient.key --private-key my.key
+
+# Decrypt with parallel processing
+neptune decrypt --input ./documents --parallel 8 --private-key my.key
+```
+
+## Memory Security
+
+Neptune implements multiple memory security measures:
+
+- **Key Zeroing**: Encryption/decryption keys are zeroed from memory after use
+- **Nonce Zeroing**: Nonces are zeroed from memory after use
+- **Shared Secret Zeroing**: ECDH shared secrets are zeroed after key derivation
+- **Downloaded Data Zeroing**: Data downloaded from URLs is zeroed after writing to disk
+- **Remote Key Zeroing**: Keys loaded from URLs are zeroed after key pair loading
+- **Context Zeroing**: HKDF context data is zeroed after use
+- **Sender Public Key Zeroing**: Sender public key references are zeroed after use
+
+All zeroing operations use `SecureZeroMemory` to overwrite sensitive data with zeros before releasing memory.
+
+## Build from Source
+
+### Prerequisites
+
+- Go 1.21 or higher
+- Git
+
+### Build Commands
+
+```bash
+# Clone the repository
+git clone https://github.com/1neptune/neptune.git
+cd neptune
+
+# Build for current platform
+go build -ldflags="-s -w" -trimpath -o build/neptune ./cmd/neptune
+
+# Build for Windows x64
+GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o build/neptune.exe ./cmd/neptune
+
+# Build for Linux x64
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o build/neptune ./cmd/neptune
+```
+
+## File Format Specification
+
+### Encrypted File Header
+
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | 1 byte | Version | Encryption format version (currently 0x01) |
+| 1 | 32 bytes | Sender Public Key | Curve25519 public key of the sender |
+| 33 | 16 bytes | Nonce | Random nonce for Sosemanuk cipher |
+| 49 | N bytes | Ciphertext | Encrypted data |
+
+**Total Header Size**: 49 bytes
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) for details.
-
----
-
-## Contributing
-
-Contributions welcome! Please read the contributing guidelines before submitting PRs.
-
----
-
-## Security Notice
-
-- **Keep private keys secure**: Never share your private key
-- **Use secure channels**: Transfer public keys via trusted channels
-- **Admin privileges**: Required for `--secure-remove-source`
-- **Memory limitations**: Sensitive data may briefly exist in memory before cleanup
-- **No forward secrecy**: Each file uses same key pair (consider key rotation)
-
----
-
-## Version History
-
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2026-06 | Initial release with encryption, decryption, keygen, download |
-
----
-
-**GitHub**: [https://github.com/1neptune/neptune](https://github.com/1neptune/neptune)
+See LICENSE file for details.

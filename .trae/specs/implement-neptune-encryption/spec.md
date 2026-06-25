@@ -1,57 +1,57 @@
-# Neptune 加密程序 Spec
+# Neptune Encryption Program Spec
 
 ## Why
-需要一个安全、高效的加密工具，使用现代密码学算法 Curve25519（密钥交换）和 Sosemanuk（流密码加密）来保护敏感数据。
+Need a secure and efficient encryption tool using modern cryptographic algorithms Curve25519 (key exchange) and Sosemanuk (stream cipher encryption) to protect sensitive data.
 
 ## What Changes
-- 实现 Curve25519 密钥交换机制
-- 实现 Sosemanuk 流密码加密/解密算法
-- 提供命令行接口进行加密/解密操作
-- 支持文件和文本数据的加密处理
+- Implement Curve25519 key exchange mechanism
+- Implement Sosemanuk stream cipher encryption/decryption algorithm
+- Provide command-line interface for encryption/decryption operations
+- Support encryption of files and text data
 
 ## Impact
-- 新增加密程序 Neptune
-- 提供安全的端到端加密能力
-- 影响范围：新增独立工具，不影响现有系统
+- New encryption program Neptune added
+- Provides secure end-to-end encryption capability
+- Scope: New independent tool, does not affect existing systems
 
 ## ADDED Requirements
 
-### Requirement: 密钥生成与管理
-系统应当提供 Curve25519 密钥对生成功能。
+### Requirement: Key Generation and Management
+The system shall provide Curve25519 key pair generation functionality.
 
-#### Scenario: 生成密钥对
-- **WHEN** 用户执行密钥生成命令
-- **THEN** 系统生成 Curve25519 公私钥对并保存到指定文件
+#### Scenario: Generate Key Pair
+- **WHEN** user executes key generation command
+- **THEN** system generates Curve25519 public/private key pair and saves to specified file
 
-### Requirement: 数据加密
-系统应当使用 Sosemanuk 流密码算法加密数据。
+### Requirement: Data Encryption
+The system shall use Sosemanuk stream cipher algorithm to encrypt data.
 
-#### Scenario: 加密文件
-- **WHEN** 用户提供接收方公钥和待加密文件
-- **THEN** 系统使用 Curve25519 密钥交换生成共享密钥，并用 Sosemanuk 加密文件内容
+#### Scenario: Encrypt File
+- **WHEN** user provides recipient's public key and file to encrypt
+- **THEN** system uses Curve25519 key exchange to generate shared key and encrypts file content with Sosemanuk
 
-#### Scenario: 加密文本
-- **WHEN** 用户提供接收方公钥和待加密文本
-- **THEN** 系统返回加密后的密文
+#### Scenario: Encrypt Text
+- **WHEN** user provides recipient's public key and text to encrypt
+- **THEN** system returns encrypted ciphertext
 
-### Requirement: 数据解密
-系统应当能够解密使用 Neptune 加密的数据。
+### Requirement: Data Decryption
+The system shall be able to decrypt data encrypted with Neptune.
 
-#### Scenario: 解密文件
-- **WHEN** 用户提供私钥和加密文件
-- **THEN** 系统解密文件并输出原始内容
+#### Scenario: Decrypt File
+- **WHEN** user provides private key and encrypted file
+- **THEN** system decrypts file and outputs original content
 
-#### Scenario: 解密文本
-- **WHEN** 用户提供私钥和加密文本
-- **THEN** 系统返回解密后的明文
+#### Scenario: Decrypt Text
+- **WHEN** user provides private key and encrypted text
+- **THEN** system returns decrypted plaintext
 
-### Requirement: 命令行接口
-系统应当提供清晰的命令行界面。
+### Requirement: Command-Line Interface
+The system shall provide a clear command-line interface.
 
-#### Scenario: 查看帮助
-- **WHEN** 用户执行 `neptune --help`
-- **THEN** 系统显示所有可用命令和使用说明
+#### Scenario: View Help
+- **WHEN** user executes `neptune --help`
+- **THEN** system displays all available commands and usage instructions
 
-#### Scenario: 版本信息
-- **WHEN** 用户执行 `neptune --version`
-- **THEN** 系统显示当前版本号
+#### Scenario: Version Information
+- **WHEN** user executes `neptune --version`
+- **THEN** system displays current version number

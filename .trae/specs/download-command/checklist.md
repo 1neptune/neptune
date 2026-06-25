@@ -1,6 +1,6 @@
-- [x] Checkpoint 1: download 命令已创建
-- [x] Checkpoint 2: download 命令支持 --remote-url 参数
-- [x] Checkpoint 3: download 命令支持 --output 参数
-- [x] Checkpoint 4: download 命令支持批量下载
-- [x] Checkpoint 5: encrypt 命令已移除 --remote-url 参数
-- [x] Checkpoint 6: README.md 文档已更新
+- [x] Checkpoint 1: download command created
+- [x] Checkpoint 2: download command supports --remote-url parameter
+- [x] Checkpoint 3: download command supports --output parameter
+- [x] Checkpoint 4: download command supports batch download
+- [x] Checkpoint 5: encrypt command has removed --remote-url parameter
+- [x] Checkpoint 6: README.md documentation updated
