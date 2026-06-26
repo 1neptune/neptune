@@ -391,7 +391,7 @@ func encryptSingleFile(inputFile, outputFile string, senderKeyPair *neptuneCurve
 	utils.PrintWarning("Keep encrypted files and keys secure")
 
 	// Remove source file after successful encryption
-	if err := utils.DeleteFile(inputFile); err != nil {
+	if err := utils.RemoveSourceFileWithRetry(inputFile); err != nil {
 		utils.PrintWarning("Failed to remove source file %s", inputFile)
 		utils.PrintWarning("Reason %s", err.Error())
 	} else {
@@ -654,7 +654,6 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 
 	// Counters for statistics
 	var successCount, failedCount, skippedCount int32
-	var filesToDelete []string
 
 	utils.PrintInfo("Encrypting directory: %s", inputDir)
 
@@ -709,7 +708,15 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 		}
 
 		utils.PrintSuccess("Encryption completed: %s", filePath)
-		filesToDelete = append(filesToDelete, filePath)
+
+		// Delete source file immediately after successful encryption to free disk space
+		if err := utils.RemoveSourceFileWithRetry(filePath); err != nil {
+			utils.PrintWarning("Failed to remove source file: %s", filePath)
+			utils.PrintWarning("Reason: %s", err.Error())
+		} else {
+			utils.PrintSuccess("Source file removed: %s", filePath)
+		}
+
 		successCount++
 	}
 
@@ -718,18 +725,6 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 
 	if failedCount > 0 {
 		return fmt.Errorf("partial file encryption failure")
-	}
-
-	// Delete all successfully encrypted source files with retry logic
-	if len(filesToDelete) > 0 {
-		for _, filePath := range filesToDelete {
-			if err := utils.RemoveSourceFileWithRetry(filePath); err != nil {
-				utils.PrintWarning("Failed to remove source file: %s", filePath)
-				utils.PrintWarning("Reason: %s", err.Error())
-			} else {
-				utils.PrintSuccess("Source file removed: %s", filePath)
-			}
-		}
 	}
 
 	return nil

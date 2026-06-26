@@ -16,7 +16,7 @@ A secure cross-platform file encryption tool using Curve25519 key exchange and S
 - **Disk-Scan Mode**: Encrypt/decrypt files across all disks without specifying input path
 - **System Directory Exclusion**: Automatically skips recycle bin directories on Windows and core system directories (/bin, /boot, /dev, /lib, /lib64, /proc, /sbin, /sys, /media, /mnt) on Linux
 - **Duplicate Encryption Detection**: Skips already-encrypted files (.ntp)
-- **Auto Remove Source**: Original files are always removed after successful encryption/decryption
+- **Auto Remove Source**: Original files are always removed after successful encryption/decryption (using os.Remove with retry mechanism)
 - **File Download**: Download files from remote URLs with memory cleanup
 
 ## Encryption Algorithm
@@ -57,7 +57,7 @@ neptune version
 **Output**:
 ```
 Neptune Encryption Tool
-Version:    v1.2.19
+Version:    v1.2.20
 Build Date: 2026-06-26
 Algorithm:  Curve25519 + Sosemanuk
 ```

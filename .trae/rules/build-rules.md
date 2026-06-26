@@ -22,6 +22,25 @@ After each code modification, when building the program, first clean up previous
 
 Use `go build -ldflags="-s -w" -trimpath` to reduce executable file size.
 
+### Windows Code Signing Rules
+After building neptune.exe for Windows, the executable must be digitally signed using signtool:
+
+```bash
+# Sign the executable with SHA256 digest algorithm and timestamp
+signtool sign /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 /f "E:\neptune\neptune.pfx" /p Neptune@2026 "E:\neptune\build\neptune.exe"
+
+# Verify the digital signature
+signtool verify /pa /v "E:\neptune\build\neptune.exe"
+```
+
+- PFX certificate file: `E:\neptune\neptune.pfx`
+- Certificate password: `Neptune@2026`
+- Timestamp server: `http://timestamp.digicert.com`
+- Digest algorithm: SHA256
+- Verification must pass before the build is considered complete
+
+
+
 ## Code Testing Rules
 - After each code modification, perform new feature tests to ensure the new features work correctly.
 - After each test, clean up test file cases to ensure a clean environment.

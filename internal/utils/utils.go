@@ -17,10 +17,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -728,17 +726,7 @@ func DeleteFile(filePath string) error {
 		return fmt.Errorf("file path is empty")
 	}
 
-	// Select the appropriate delete command based on operating system
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "del", "/f", "/q", filePath)
-	default:
-		cmd = exec.Command("rm", "-rf", filePath)
-	}
-
-	// Execute the delete command
-	if err := cmd.Run(); err != nil {
+	if err := os.Remove(filePath); err != nil {
 		return fmt.Errorf("delete failed: %w", err)
 	}
 

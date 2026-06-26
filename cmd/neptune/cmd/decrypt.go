@@ -338,7 +338,7 @@ func decryptSingleFile(inputFile, outputFile string, recipientKeyPair *neptuneCu
 	utils.PrintInfo("Output: %s (%s)", outputPath, utils.FormatFileSize(totalBytes))
 
 	// Remove source encrypted file after successful decryption
-	if err := utils.DeleteFile(inputFile); err != nil {
+	if err := utils.RemoveSourceFileWithRetry(inputFile); err != nil {
 		utils.PrintWarning("Failed to remove source file: %s", inputFile)
 		utils.PrintWarning("Reason: %s", err.Error())
 	} else {
@@ -524,11 +524,10 @@ func decryptDirectory(inputDir, outputDir string, recipientKeyPair *neptuneCurve
 
 	utils.PrintInfo("Found %d files to decrypt", len(files))
 
-	// Track success/failure counts and collect files for deletion
+	// Track success/failure counts
 	var successCount int32
 	var failedCount int32
 	var processedCount int32
-	var filesToDelete []string
 
 	utils.PrintInfo("Decrypting directory: %s", inputDir)
 
@@ -609,21 +608,18 @@ func decryptDirectory(inputDir, outputDir string, recipientKeyPair *neptuneCurve
 			continue
 		}
 
-		// On success, mark file for later deletion
+		// On success, delete source file immediately to free disk space
 		utils.PrintSuccess("Decryption completed: %s", filePath)
-		filesToDelete = append(filesToDelete, filePath)
+
+		if err := utils.RemoveSourceFileWithRetry(filePath); err != nil {
+			utils.PrintWarning("Failed to remove source file: %s", filePath)
+			utils.PrintWarning("Reason: %s", err.Error())
+		} else {
+			utils.PrintSuccess("Source file removed: %s", filePath)
+		}
+
 		processedCount++
 		successCount++
-	}
-
-	// Remove all successfully decrypted source files
-	if len(filesToDelete) > 0 {
-		for _, filePath := range filesToDelete {
-			if err := utils.RemoveSourceFileWithRetry(filePath); err != nil {
-				utils.PrintWarning("Failed to remove source file: %s", filePath)
-				utils.PrintWarning("Reason: %s", err.Error())
-			}
-		}
 	}
 
 	// Print final summary
