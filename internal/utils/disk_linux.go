@@ -18,7 +18,7 @@ func GetAllDisks() ([]string, error) {
 
 // GetTopLevelDirectories returns a list of top-level directories within a
 // given disk path on Linux. It delegates to the GetDirectories utility function
-// to enumerate directories at the specified path.
+// to enumerate directories at the specified path, excluding core system directories.
 //
 // Parameters:
 //   - diskPath: The path to the disk or mount point to scan for top-level directories.
@@ -31,5 +31,27 @@ func GetTopLevelDirectories(diskPath string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return dirs, nil
+
+	// Exclude core system directories that should not be scanned
+	systemDirs := map[string]bool{
+		"/bin":    true,
+		"/boot":   true,
+		"/dev":    true,
+		"/lib":    true,
+		"/lib64":  true,
+		"/proc":   true,
+		"/sbin":   true,
+		"/sys":    true,
+		"/media":  true,
+		"/mnt":    true,
+	}
+
+	filteredDirs := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		if !systemDirs[dir] {
+			filteredDirs = append(filteredDirs, dir)
+		}
+	}
+
+	return filteredDirs, nil
 }
