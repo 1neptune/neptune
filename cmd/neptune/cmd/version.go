@@ -9,8 +9,8 @@ import (
 // Version constants define the current version of the Neptune tool.
 // These are set at build time and displayed by the version command.
 const (
-	Version   = "v1.2.18" // Semantic version number
-	BuildDate = "2026-06-25" // Date of the current build
+	Version   = "v1.2.19" // Semantic version number
+	BuildDate = "2026-06-26" // Date of the current build
 )
 
 // versionCmd displays version and build information for Neptune.
