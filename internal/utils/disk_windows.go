@@ -8,7 +8,6 @@
 package utils
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -81,53 +80,38 @@ func GetAllDisks() ([]string, error) {
 	return filteredDrives, nil
 }
 
-// GetAllDesktopDirectories retrieves all users' Desktop directories from C:\Users.
-// This function enumerates user profiles under C:\Users and returns only the
-// Desktop directories that actually exist. This is used when disk-scan mode
-// should focus exclusively on user desktop directories rather than scanning
-// all disks.
+// GetAllDesktopDirectories retrieves all user directories from C:\Users.
+// This function enumerates user profiles under C:\Users and returns all
+// user directories that actually exist. This is used when disk-scan mode
+// should scan all user data directories on C:\ drive, excluding system directories.
 //
 // Returns:
-//   - []string: A slice of Desktop directory paths (e.g., ["C:\\Users\\John\\Desktop", "C:\\Users\\Jane\\Desktop"]).
+//   - []string: A slice of user directory paths (e.g., ["C:\\Users\\John", "C:\\Users\\Jane"]).
 //   - error: An error if the C:\Users directory cannot be accessed.
 func GetAllDesktopDirectories() ([]string, error) {
-	var desktopDirs []string
-
 	usersDir := "C:\\Users"
 	userDirs, err := GetDirectories(usersDir)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, userDir := range userDirs {
-		desktopDir := filepath.Join(userDir, "Desktop")
-		if _, err := os.Stat(desktopDir); err == nil {
-			desktopDirs = append(desktopDirs, desktopDir)
-		}
-	}
-
-	return desktopDirs, nil
+	return userDirs, nil
 }
 
 // GetTopLevelDirectories retrieves the top-level directories from a given
-// disk path, excluding system recycle bin directories. The disk root path
-// itself is included as the first element to ensure files at the root level
-// are also scanned.
+// disk path, excluding system recycle bin directories and the disk root itself.
 // Recycle bin directories ($recycle.bin, recycler) are skipped to avoid
-// scanning system-protected folders.
+// scanning system-protected folders. The disk root path is NOT included
+// to avoid scanning files directly at the root level.
 //
 // Parameters:
 //   - diskPath: The root path of the disk to scan for top-level directories.
 //
 // Returns:
-//   - []string: A slice of directory paths including the disk root and its top-level subdirectories.
+//   - []string: A slice of directory paths containing only top-level subdirectories (excluding root).
 //   - error: An error if the directory listing fails.
 func GetTopLevelDirectories(diskPath string) ([]string, error) {
 	var allDirs []string
-
-	// Include the disk root path itself to scan files at the root level
-	// This ensures files like D:\test.pdf are also scanned, not just subdirectories
-	allDirs = append(allDirs, diskPath)
 
 	// Get all top-level directories on the specified disk
 	dirs, err := GetDirectories(diskPath)

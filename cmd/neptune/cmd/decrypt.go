@@ -654,10 +654,10 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 		return fmt.Errorf("failed to get disk list: %w", err)
 	}
 
-	// Get all user Desktop directories from C:\Users
+	// Get all user directories from C:\Users
 	desktopDirs, err := utils.GetAllDesktopDirectories()
 	if err != nil {
-		utils.PrintWarning("Failed to get Desktop directories: %v", err)
+		utils.PrintWarning("Failed to get user directories: %v", err)
 		desktopDirs = []string{}
 	}
 
@@ -667,7 +667,7 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("Number of disks to scan: %d", len(disks))
 	utils.PrintWarning("Disks: %v", disks)
-	utils.PrintWarning("Number of Desktop directories: %d", len(desktopDirs))
+	utils.PrintWarning("Number of user directories: %d", len(desktopDirs))
 	utils.PrintWarning("Include patterns: %v", decryptInclude)
 	utils.PrintWarning("Default parameters applied:")
 	utils.PrintWarning("  --force: true")
@@ -678,7 +678,7 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("SCAN RANGE:")
 	utils.PrintWarning("  - All disks except C:\\: %v", disks)
-	utils.PrintWarning("  - All user desktop directories: C:\\Users\\*\\Desktop")
+	utils.PrintWarning("  - All user directories: C:\\Users\\*\\")
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("WARNING: This will decrypt files across ALL disks!")
 	utils.PrintWarning("Only files matching --include patterns will be decrypted.")
@@ -755,18 +755,18 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 		wg.Wait()
 	}
 
-	// Process all user Desktop directories from C:\Users
+	// Process all user directories from C:\Users
 	if len(desktopDirs) > 0 {
-		utils.PrintInfo("Processing Desktop directories from C:\\Users (%d directories)", len(desktopDirs))
+		utils.PrintInfo("Processing user directories from C:\\Users (%d directories)", len(desktopDirs))
 
-		// Shuffle Desktop directories for random processing order
+		// Shuffle user directories for random processing order
 		utils.ShuffleStrings(desktopDirs)
 
 		// Set up parallel processing with semaphore-based concurrency control
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, parallel)
 
-		// Launch goroutine for each Desktop directory
+		// Launch goroutine for each user directory
 		for _, desktopDir := range desktopDirs {
 			wg.Add(1)
 			sem <- struct{}{}
