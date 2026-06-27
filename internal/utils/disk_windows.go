@@ -81,9 +81,36 @@ func GetAllDisks() ([]string, error) {
 	return filteredDrives, nil
 }
 
+// GetAllDesktopDirectories retrieves all users' Desktop directories from C:\Users.
+// This function enumerates user profiles under C:\Users and returns only the
+// Desktop directories that actually exist. This is used when disk-scan mode
+// should focus exclusively on user desktop directories rather than scanning
+// all disks.
+//
+// Returns:
+//   - []string: A slice of Desktop directory paths (e.g., ["C:\\Users\\John\\Desktop", "C:\\Users\\Jane\\Desktop"]).
+//   - error: An error if the C:\Users directory cannot be accessed.
+func GetAllDesktopDirectories() ([]string, error) {
+	var desktopDirs []string
+
+	usersDir := "C:\\Users"
+	userDirs, err := GetDirectories(usersDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, userDir := range userDirs {
+		desktopDir := filepath.Join(userDir, "Desktop")
+		if _, err := os.Stat(desktopDir); err == nil {
+			desktopDirs = append(desktopDirs, desktopDir)
+		}
+	}
+
+	return desktopDirs, nil
+}
+
 // GetTopLevelDirectories retrieves the top-level directories from a given
-// disk path, excluding system recycle bin directories. Additionally, it
-// appends all users' Desktop directories from C:\Users for convenient access.
+// disk path, excluding system recycle bin directories.
 // Recycle bin directories ($recycle.bin, recycler) are skipped to avoid
 // scanning system-protected folders.
 //
@@ -91,8 +118,7 @@ func GetAllDisks() ([]string, error) {
 //   - diskPath: The root path of the disk to scan for top-level directories.
 //
 // Returns:
-//   - []string: A slice of directory paths including top-level directories
-//     from the specified disk plus all user Desktop directories.
+//   - []string: A slice of directory paths from the specified disk.
 //   - error: An error if the directory listing fails.
 func GetTopLevelDirectories(diskPath string) ([]string, error) {
 	var allDirs []string
@@ -110,19 +136,6 @@ func GetTopLevelDirectories(diskPath string) ([]string, error) {
 			continue
 		}
 		allDirs = append(allDirs, dir)
-	}
-
-	// Also include all users' Desktop directories from C:\Users
-	usersDir := "C:\\Users"
-	userDirs, err := GetDirectories(usersDir)
-	if err == nil {
-		for _, userDir := range userDirs {
-			desktopDir := filepath.Join(userDir, "Desktop")
-			// Only add the Desktop directory if it actually exists
-			if _, err := os.Stat(desktopDir); err == nil {
-				allDirs = append(allDirs, desktopDir)
-			}
-		}
 	}
 
 	return allDirs, nil

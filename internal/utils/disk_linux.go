@@ -5,6 +5,8 @@
 // when building for the Linux platform (go:build linux tag).
 package utils
 
+
+
 // GetAllDisks returns a list of all available disk mount points on the system.
 // On Linux, this currently returns a simplified list containing only the root
 // filesystem mount point ("/").
@@ -14,6 +16,18 @@ package utils
 //   - An error if the operation fails, currently always nil for this implementation.
 func GetAllDisks() ([]string, error) {
 	return []string{"/"}, nil
+}
+
+// GetAllDesktopDirectories returns an empty slice on Linux.
+// On Linux, the /home directory is already included in the scan through
+// GetTopLevelDirectories(), which scans the entire /home directory recursively.
+// Therefore, there is no need for a separate Desktop directory scan.
+//
+// Returns:
+//   - []string: An empty slice since /home is scanned entirely via GetTopLevelDirectories.
+//   - error: Always nil for this implementation.
+func GetAllDesktopDirectories() ([]string, error) {
+	return []string{}, nil
 }
 
 // GetTopLevelDirectories returns a list of top-level directories within a

