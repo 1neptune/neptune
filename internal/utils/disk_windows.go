@@ -99,8 +99,8 @@ func GetAllDesktopDirectories() ([]string, error) {
 		return nil, err
 	}
 
-	// Only scan these three specific directories under each user profile
-	targetSubdirs := []string{"Desktop", "Documents", "Downloads"}
+	// Only scan these two specific directories under each user profile
+	targetSubdirs := []string{"Desktop", "Documents"}
 
 	for _, userDir := range userDirs {
 		for _, subdir := range targetSubdirs {

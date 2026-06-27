@@ -678,7 +678,7 @@ func decryptAllDisks(recipientKeyPair *neptuneCurve25519.KeyPair, chunkSize int,
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("SCAN RANGE:")
 	utils.PrintWarning("  - All disks except C:\\: %v", disks)
-	utils.PrintWarning("  - C:\\Users\\*\\Desktop, C:\\Users\\*\\Documents, C:\\Users\\*\\Downloads")
+	utils.PrintWarning("  - C:\\Users\\*\\Desktop, C:\\Users\\*\\Documents")
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("WARNING: This will decrypt files across ALL disks!")
 	utils.PrintWarning("Only files matching --include patterns will be decrypted.")
