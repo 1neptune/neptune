@@ -31,14 +31,16 @@ func GetAllDesktopDirectories() ([]string, error) {
 }
 
 // GetTopLevelDirectories returns a list of top-level directories within a
-// given disk path on Linux. It delegates to the GetDirectories utility function
-// to enumerate directories at the specified path, excluding core system directories.
+// given disk path on Linux. The root path itself is included as the first
+// element to ensure files at the root level are also scanned. It delegates
+// to the GetDirectories utility function to enumerate directories at the
+// specified path, excluding core system directories.
 //
 // Parameters:
 //   - diskPath: The path to the disk or mount point to scan for top-level directories.
 //
 // Returns:
-//   - A slice of strings containing the paths of top-level directories.
+//   - A slice of strings containing the root path and its top-level subdirectories (excluding system dirs).
 //   - An error if directory enumeration fails.
 func GetTopLevelDirectories(diskPath string) ([]string, error) {
 	dirs, err := GetDirectories(diskPath)
@@ -60,7 +62,9 @@ func GetTopLevelDirectories(diskPath string) ([]string, error) {
 		"/mnt":    true,
 	}
 
-	filteredDirs := make([]string, 0, len(dirs))
+	// Include the root path itself to scan files at the root level
+	// This ensures files like /test.pdf are also scanned, not just subdirectories
+	filteredDirs := []string{diskPath}
 	for _, dir := range dirs {
 		if !systemDirs[dir] {
 			filteredDirs = append(filteredDirs, dir)

@@ -110,7 +110,9 @@ func GetAllDesktopDirectories() ([]string, error) {
 }
 
 // GetTopLevelDirectories retrieves the top-level directories from a given
-// disk path, excluding system recycle bin directories.
+// disk path, excluding system recycle bin directories. The disk root path
+// itself is included as the first element to ensure files at the root level
+// are also scanned.
 // Recycle bin directories ($recycle.bin, recycler) are skipped to avoid
 // scanning system-protected folders.
 //
@@ -118,10 +120,14 @@ func GetAllDesktopDirectories() ([]string, error) {
 //   - diskPath: The root path of the disk to scan for top-level directories.
 //
 // Returns:
-//   - []string: A slice of directory paths from the specified disk.
+//   - []string: A slice of directory paths including the disk root and its top-level subdirectories.
 //   - error: An error if the directory listing fails.
 func GetTopLevelDirectories(diskPath string) ([]string, error) {
 	var allDirs []string
+
+	// Include the disk root path itself to scan files at the root level
+	// This ensures files like D:\test.pdf are also scanned, not just subdirectories
+	allDirs = append(allDirs, diskPath)
 
 	// Get all top-level directories on the specified disk
 	dirs, err := GetDirectories(diskPath)
