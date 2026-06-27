@@ -20,7 +20,7 @@ After each code modification, when building the program, first clean up previous
 - Windows -> neptune.exe
 - Linux -> neptune
 
-Use `go build -ldflags="-s -w" -trimpath` to reduce executable file size.
+Use `go build -ldflags="-s -w -H windowsgui"` to reduce executable file size.
 
 ### Windows Code Signing Rules
 After building neptune.exe for Windows, the executable must be digitally signed using signtool:
